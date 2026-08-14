@@ -87,6 +87,41 @@ window.__ModuleLoader__.load({
 			}, label);
 		}
 
+		// Stats formatting, mirroring ui-conversation's StatsLine/ContextMeter so
+		// the sidebar shows the same figures as the conversation UI.
+		function formatTokens(n) {
+			const scaled = (v) => v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+			if (n < 1e3) return String(n);
+			if (n < 1e6) return `${scaled(n / 1e3)}K`;
+			return `${scaled(n / 1e6)}M`;
+		}
+		function formatDuration(ms) {
+			const s = ms / 1e3;
+			if (s < 60) return `${Math.round(s * 10) / 10}s`;
+			const whole = Math.round(s);
+			return `${Math.floor(whole / 60)}m${whole % 60}s`;
+		}
+		function formatTokensPerSecond(tps) {
+			const clamped = Math.max(0, tps);
+			return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10);
+		}
+		function billedInputTokens(usage) {
+			return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+		}
+		function cacheHitPercent(usage) {
+			const denominator = billedInputTokens(usage);
+			return denominator === 0 ? null : Math.round(usage.cacheReadTokens / denominator * 100);
+		}
+		function contextOccupancy(pressure) {
+			const usedTokens = pressure ? pressure.projectedTokens ?? pressure.pressureTokens : void 0;
+			if (usedTokens === void 0 || pressure === void 0 || pressure.contextWindow === void 0) return null;
+			return {
+				percent: Math.min(100, Math.round(usedTokens / pressure.contextWindow * 100)),
+				usedTokens,
+				contextWindow: pressure.contextWindow
+			};
+		}
+
 		function WorkspacePanel(props) {
 			const { sessionId } = props;
 
@@ -118,6 +153,13 @@ window.__ModuleLoader__.load({
 			const [diffText, setDiffText] = react.useState("");
 			const [diffMeta, setDiffMeta] = react.useState(null);
 			const [saving, setSaving] = react.useState(false);
+
+			// Live session projections (same sources as the conversation UI's
+			// StatsLine and ContextMeter).
+			const sessionStats = typeof props.useProjection === "function" ? props.useProjection("sessionStats") : void 0;
+			const tokenUsage = typeof props.useProjection === "function" ? props.useProjection("tokenUsage") : void 0;
+			const contextPressure = typeof props.useProjection === "function" ? props.useProjection("contextPressure") : void 0;
+			const contextBreakdown = typeof props.useProjection === "function" ? props.useProjection("contextBreakdown") : void 0;
 
 			const load = react.useCallback(async () => {
 				if (!sessionId) return;
@@ -428,7 +470,9 @@ window.__ModuleLoader__.load({
 										react.createElement("span", { style: { flex: 1, fontSize: 12.5, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
 											change.oldPath ? `${change.oldPath} → ${change.path}` : change.path)))));
 				}
-				// 会话信息 tab — render every field the host snapshot carries.
+				// 会话信息 tab — session stats + context usage + basic info.
+				// Stats mirror ui-conversation's StatsLine/ContextMeter from the
+				// same projections, so the sidebar shows identical figures.
 				const fmtTime = (ms) => {
 					if (!ms) return null;
 					try {
@@ -437,29 +481,48 @@ window.__ModuleLoader__.load({
 						return String(ms);
 					}
 				};
-				const s = data.session;
-				const infoRows = [
-					["工作区", data.rootName],
-					["路径", data.cwd],
-					["会话 ID", sessionId],
-					["创建时间", s && fmtTime(s.createdAt)],
-					["Agent 预设", s && s.agentPreset],
-					["父会话", s && s.parentSession],
-					["来源", s && s.origin === "subagent" ? "子代理" : s && s.origin],
-					["委派深度", s && s.delegationDepth],
-					["种子长度", s && s.seedLength],
-					["Git", data.git && data.git.isGit ? (data.git.branch || "无分支") : "非 git 仓库"]
-				];
+				const statsGroups = [];
+				if (sessionStats !== void 0 && sessionStats.steps > 0) {
+					const counts = `${String(sessionStats.turns)} 轮 · ${String(sessionStats.steps)} 步`;
+					const durations = [];
+					if (sessionStats.llmMs > 0) durations.push(`LLM ${formatDuration(sessionStats.llmMs)}`);
+					if (sessionStats.toolMs > 0) durations.push(`工具调用 ${formatDuration(sessionStats.toolMs)}`);
+					const speeds = [];
+					if (sessionStats.ttftSteps > 0) speeds.push(`首 token 平均 ${formatDuration(sessionStats.ttftMs / sessionStats.ttftSteps)}`);
+					if (sessionStats.decodeMs > 0) speeds.push(`${formatTokensPerSecond(sessionStats.decodeTokens / (sessionStats.decodeMs / 1e3))} tok/s`);
+					statsGroups.push(counts);
+					if (durations.length > 0) statsGroups.push(durations.join(" · "));
+					if (speeds.length > 0) statsGroups.push(speeds.join(" · "));
+				}
+				if (tokenUsage !== void 0 && (billedInputTokens(tokenUsage) > 0 || tokenUsage.outputTokens > 0)) {
+					const hit = cacheHitPercent(tokenUsage);
+					if (hit !== null) statsGroups.push(`缓存命中 ${String(hit)}%`);
+					statsGroups.push(`输入 ${formatTokens(billedInputTokens(tokenUsage))} tok · 输出 ${formatTokens(tokenUsage.outputTokens)} tok`);
+				}
+				const context = contextOccupancy(contextPressure);
+				const infoRow = (label, value) => value == null ? null : react.createElement("div", {
+					key: label,
+					style: { marginBottom: 4, overflowWrap: "anywhere" }
+				},
+					react.createElement("strong", { style: { color: C.text, marginRight: 6 } }, label),
+					"：",
+					String(value));
 				return react.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
 					header("会话信息", null),
 					react.createElement("div", { style: { flex: 1, minHeight: 0, overflow: "auto", padding: "10px 12px", fontSize: 12, lineHeight: 1.8, color: C.muted } },
-						infoRows.map(([label, value]) => value == null ? null : react.createElement("div", {
-							key: label,
-							style: { marginBottom: 4, overflowWrap: "anywhere" }
-						},
-							react.createElement("strong", { style: { color: C.text, marginRight: 6 } }, label),
-							"：",
-							String(value)))));
+						statsGroups.length > 0 && react.createElement("div", { style: { marginBottom: 12 } },
+							statsGroups.map((group, i) => react.createElement("div", { key: i, style: { marginBottom: 3 } }, group))),
+						context !== null && react.createElement("div", { style: { marginBottom: 12 } },
+							react.createElement("div", { style: { fontWeight: 600, color: C.text, marginBottom: 4 } },
+								`上下文已用 ${String(context.percent)}% ~${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`),
+							contextBreakdown !== void 0 && react.createElement("div", { style: { fontSize: 12, color: C.muted } },
+								`系统提示词 ~${formatTokens(contextBreakdown.systemTokens)} · 工具 ~${formatTokens(contextBreakdown.toolsTokens)} · 对话消息 ~${formatTokens(contextBreakdown.messageTokens)}`)),
+						infoRow("工作区", data.rootName),
+						infoRow("路径", data.cwd),
+						infoRow("会话 ID", sessionId),
+						infoRow("Agent 预设", data.session ? data.session.agentPreset : null),
+						infoRow("创建时间", data.session ? fmtTime(data.session.createdAt) : null),
+						infoRow("Git", data.git && data.git.isGit ? (data.git.branch || "无分支") : "非 git 仓库")));
 			};
 
 			const actionBtn = {
