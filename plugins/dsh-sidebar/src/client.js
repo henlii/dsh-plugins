@@ -89,6 +89,23 @@ window.__ModuleLoader__.load({
 
 		function WorkspacePanel(props) {
 			const { sessionId } = props;
+
+			// The details column is "never unmounted" — it renders at width 0
+			// when closed — so this panel mounts even while the column is
+			// closed, and the layout only admits it for a real (non-blank)
+			// session. Re-open on mount and on every session switch so the
+			// sidebar follows the user; a manual close with no session change
+			// is left alone (the effect does not re-run).
+			react.useEffect(() => {
+				if (props.layout !== void 0 && typeof props.layout.openDetails === "function") {
+					try {
+						props.layout.openDetails();
+					} catch {
+						/* layout not wired yet — the column stays closed */
+					}
+				}
+			}, [sessionId]);
+
 			const [tab, setTab] = react.useState("files");
 			const [collapsed, setCollapsed] = react.useState(false);
 			const [data, setData] = react.useState(null);
@@ -415,17 +432,19 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			const slots = ctx.get("slots");
 			if (slots === void 0) return;
+			// The `inject` callback runs when the slot renders — by then the
+			// layout service is wired, unlike at apply() time (mount order is
+			// not strict tree order). The panel opens the details column in its
+			// mount effect so the sidebar is visible without hunting the toggle.
 			slots.inject("details", () => slots.register(
-				{ name: "details", id: "dsh-sidebar", priority: -1 },
+				{
+					name: "details",
+					id: "dsh-sidebar",
+					priority: -1,
+					inject: () => ({ layout: ctx.get("layout") })
+				},
 				(props) => react.createElement(WorkspacePanel, props)
 			));
-			// Open the right details column on mount so the sidebar is visible
-			// without the user hunting for the layout toggle. Once open, the
-			// shell keeps the user's choice.
-			const layout = ctx.get("layout");
-			if (layout !== void 0 && typeof layout.openDetails === "function") {
-				layout.openDetails();
-			}
 		}
 
 		exports.name = name;
