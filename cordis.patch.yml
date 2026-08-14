@@ -1,0 +1,18 @@
+# dsh-plugins — 一次性全部安装 patch
+#
+# 用法：
+#   dsh web --patch <本文件绝对路径>
+# 或把本文件内容并入你的 profile 的 cordis.patch.yml
+#   （$DSH_HOME/profiles/web/cordis.patch.yml，配置 HMR 实时生效）。
+#
+# 每个插件也可独立安装（见各插件 README 或 docs/INSTALL.md）。
+
+- insert:
+    - id: web-auth
+      name: 'dsh-web-auth'
+      config:
+        # 访问密码：优先取环境变量；留空则回退到 passwordFile（/root/.config/dsh/web-auth.password）
+        password: !!js process.env.DSH_WEB_AUTH_PASSWORD
+        tokenTtlHours: 12
+        # 可选：额外视为回环的 LAN/Tailscale 主机名（默认自动从 webRuntime.trustedHosts 派生）
+        # lanHosts: ['myhost.lan', 'myhost.tailnet.ts.net']

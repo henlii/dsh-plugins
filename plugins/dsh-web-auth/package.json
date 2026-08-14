@@ -1,0 +1,23 @@
+{
+  "name": "dsh-web-auth",
+  "version": "0.1.0",
+  "description": "DSH plugin: password authentication + trust for dsh web LAN/Tailscale access. Non-loopback /api and WebSocket traffic requires a password login; once authenticated, the privileged settings/credentials plane works over LAN.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT"
+}

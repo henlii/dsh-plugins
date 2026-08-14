@@ -1,0 +1,12 @@
+{
+  "name": "dsh-plugins",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness (dsh) 自定义插件集合：每个插件可独立安装，也可通过集合 patch 一次性全部安装。",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "check": "node --check plugins/*/src/index.js && node --check plugins/*/src/client.js",
+    "install:all": "dsh web --patch ./cordis.patch.yml"
+  }
+}

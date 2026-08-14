@@ -1,0 +1,12 @@
+# dsh-web-auth 独立安装示例
+#
+# 1) 安装依赖包：
+#    dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-web-auth
+# 2) 把本文件内容并入 $DSH_HOME/profiles/web/cordis.patch.yml（配置 HMR 实时生效）。
+
+- insert:
+    - id: web-auth
+      name: 'dsh-web-auth'
+      config:
+        password: !!js process.env.DSH_WEB_AUTH_PASSWORD
+        tokenTtlHours: 12
