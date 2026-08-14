@@ -21,6 +21,7 @@
 | 插件 | 功能 | 安装 |
 |------|------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网/LAN/Tailscale 访问密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置/凭据等特权页在内网可用 | 独立 / 全部 |
+| [dsh-sidebar](plugins/dsh-sidebar/) | 右侧边栏：当前会话工作区文件树 + Git 状态/diff（pidance 式常驻菜单条），点击文件展开二级编辑 | 独立 / 全部 |
 
 ## 安装
 

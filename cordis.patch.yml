@@ -16,3 +16,7 @@
         tokenTtlHours: 12
         # 可选：额外视为回环的 LAN/Tailscale 主机名（默认自动从 webRuntime.trustedHosts 派生）
         # lanHosts: ['myhost.lan', 'myhost.tailnet.ts.net']
+
+    - id: sidebar
+      name: 'dsh-sidebar'
+      config: {}

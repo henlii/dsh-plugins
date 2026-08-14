@@ -1,0 +1,23 @@
+{
+  "name": "dsh-sidebar",
+  "version": "0.1.0",
+  "description": "DSH plugin: workspace file tree + git status/diff right sidebar for the current session. Pidance/OpenChamber-style persistent menu rail; click a file to open a second-level editor (content or diff).",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT"
+}
