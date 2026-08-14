@@ -372,7 +372,11 @@ function apply(ctx, config) {
 
   const isApiRoute = (route) => {
     const path = route && route.path;
-    return path === "/api" || (typeof path === "string" && path.startsWith("/api/"));
+    if (path === "/api" || (typeof path === "string" && path.startsWith("/api/"))) return true;
+    // Third-party plugins sometimes register sensitive JSON routes outside
+    // /api (e.g. /vision-bridge/rpc). `extraProtectedPaths` lets the deployment
+    // pull those behind the same password gate.
+    return Array.isArray(cfg.extraProtectedPaths) && cfg.extraProtectedPaths.includes(path);
   };
 
   // Patch register/registerUpgrade so every /api route and upgrade registered
