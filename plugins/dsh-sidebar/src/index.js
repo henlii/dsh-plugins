@@ -145,6 +145,11 @@ async function buildTree(fs, target, cwd, depth, state) {
       out.push({ name: entry.name, type: "file", path: rel });
     }
   }
+  // Directories first, then files; each group by natural, case-insensitive name.
+  out.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+    return a.name.localeCompare(b.name, void 0, { numeric: true, sensitivity: "base" });
+  });
   return out;
 }
 
@@ -172,6 +177,34 @@ async function resolveCwd(sessions, sessionQuery, sessionId) {
     }
   }
   return void 0;
+}
+
+/** Extract leaf session-header fields for display (null when unknown). */
+function sessionFields(header) {
+  if (header === void 0) return null;
+  return {
+    createdAt: typeof header.createdAt === "number" ? header.createdAt : null,
+    parentSession: typeof header.parentSession === "string" ? header.parentSession : null,
+    seedLength: typeof header.seedLength === "number" ? header.seedLength : null,
+    origin: typeof header.origin === "string" ? header.origin : null,
+    delegationDepth: typeof header.delegationDepth === "number" ? header.delegationDepth : null,
+    agentPreset: typeof header.agentPreset === "string" ? header.agentPreset : null
+  };
+}
+
+/** Read session info: live session store first, storage-backed query fallback. */
+async function readSessionInfo(sessions, sessionQuery, sessionId) {
+  const live = sessions !== void 0 ? sessions.get(sessionId) : void 0;
+  if (live !== void 0 && live.header !== void 0) return sessionFields(live.header);
+  if (sessionQuery !== void 0) {
+    try {
+      const snapshot = await sessionQuery.readSession(sessionId);
+      return sessionFields(snapshot !== void 0 ? snapshot.session : void 0);
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function apply(ctx) {
@@ -227,7 +260,8 @@ function apply(ctx) {
     }
 
     const rootName = cwd.split("/").filter(Boolean).pop() || cwd;
-    sendJson(res, 200, { ok: true, cwd, rootName, files, git });
+    const session = await readSessionInfo(sessions, ctx.get("sessionQuery"), sessionId);
+    sendJson(res, 200, { ok: true, cwd, rootName, files, git, session });
   }
 
   async function readFile(ctx, req, res) {

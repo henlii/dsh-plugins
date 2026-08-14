@@ -428,14 +428,38 @@ window.__ModuleLoader__.load({
 										react.createElement("span", { style: { flex: 1, fontSize: 12.5, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
 											change.oldPath ? `${change.oldPath} → ${change.path}` : change.path)))));
 				}
-				// info tab
+				// 会话信息 tab — render every field the host snapshot carries.
+				const fmtTime = (ms) => {
+					if (!ms) return null;
+					try {
+						return new Date(ms).toLocaleString();
+					} catch {
+						return String(ms);
+					}
+				};
+				const s = data.session;
+				const infoRows = [
+					["工作区", data.rootName],
+					["路径", data.cwd],
+					["会话 ID", sessionId],
+					["创建时间", s && fmtTime(s.createdAt)],
+					["Agent 预设", s && s.agentPreset],
+					["父会话", s && s.parentSession],
+					["来源", s && s.origin === "subagent" ? "子代理" : s && s.origin],
+					["委派深度", s && s.delegationDepth],
+					["种子长度", s && s.seedLength],
+					["Git", data.git && data.git.isGit ? (data.git.branch || "无分支") : "非 git 仓库"]
+				];
 				return react.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
-					header("信息", null),
+					header("会话信息", null),
 					react.createElement("div", { style: { flex: 1, minHeight: 0, overflow: "auto", padding: "10px 12px", fontSize: 12, lineHeight: 1.8, color: C.muted } },
-						react.createElement("div", null, react.createElement("strong", { style: { color: C.text } }, "工作区"), "：", data.rootName),
-						react.createElement("div", null, react.createElement("strong", { style: { color: C.text } }, "路径"), "：", data.cwd),
-						react.createElement("div", null, react.createElement("strong", { style: { color: C.text } }, "会话"), "：", sessionId),
-						react.createElement("div", null, react.createElement("strong", { style: { color: C.text } }, "Git"), "：", data.git && data.git.isGit ? (data.git.branch || "无分支") : "非 git 仓库")));
+						infoRows.map(([label, value]) => value == null ? null : react.createElement("div", {
+							key: label,
+							style: { marginBottom: 4, overflowWrap: "anywhere" }
+						},
+							react.createElement("strong", { style: { color: C.text, marginRight: 6 } }, label),
+							"：",
+							String(value)))));
 			};
 
 			const actionBtn = {
