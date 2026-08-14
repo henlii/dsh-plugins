@@ -486,6 +486,19 @@ window.__ModuleLoader__.load({
 				},
 				(props) => react.createElement(WorkspacePanel, props)
 			));
+
+			// When the details column is retracted (frame gets
+			// data-details-collapsed) the fixed rail would cover the center
+			// column's right edge. Reserve its 44px via the center column's
+			// right padding — the rail then occupies the reserved strip instead
+			// of covering conversation content. Selectors use the stable
+			// readable suffixes of the shell's hashed module classes.
+			const style = document.createElement("style");
+			style.textContent = '[class$="frame"][data-details-collapsed] [class$="centerCol"] { padding-right: 44px; }';
+			document.head.appendChild(style);
+			ctx.effect(() => () => {
+				style.remove();
+			}, "dsh-sidebar: rail reservation css");
 		}
 
 		exports.name = name;
