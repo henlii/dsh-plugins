@@ -97,6 +97,7 @@ window.__ModuleLoader__.load({
 			// sidebar follows the user; a manual close with no session change
 			// is left alone (the effect does not re-run).
 			react.useEffect(() => {
+				setCollapsed(false);
 				if (props.layout !== void 0 && typeof props.layout.openDetails === "function") {
 					try {
 						props.layout.openDetails();
@@ -302,11 +303,44 @@ window.__ModuleLoader__.load({
 				borderRadius: 6
 			};
 
+			// pidance-style rail: clicking a different tab switches to it;
+			// clicking the already-active tab again retracts the content by
+			// closing the details column (the fixed rail stays visible). Any
+			// click while retracted reopens the column.
+			const selectTab = (nextTab) => {
+				if (nextTab === tab && !collapsed) {
+					setCollapsed(true);
+					if (props.layout !== void 0 && typeof props.layout.closeDetails === "function") {
+						try {
+							props.layout.closeDetails();
+						} catch {
+							/* layout not wired */
+						}
+					}
+				} else {
+					setCollapsed(false);
+					setTab(nextTab);
+					if (props.layout !== void 0 && typeof props.layout.openDetails === "function") {
+						try {
+							props.layout.openDetails();
+						} catch {
+							/* layout not wired */
+						}
+					}
+				}
+			};
+			// The rail is fixed to the viewport's right edge so it stays visible
+			// even when the details column is closed (dsh's layout only admits
+			// widths ≥ 300px or 0 — there is no 44px column state).
 			const rail = react.createElement("nav", {
 				"aria-label": "dsh-sidebar 导航",
 				style: {
+					position: "fixed",
+					right: 0,
+					top: 0,
+					bottom: 0,
 					width: 44,
-					flex: "0 0 44px",
+					zIndex: 30,
 					display: "flex",
 					flexDirection: "column",
 					alignItems: "center",
@@ -316,11 +350,10 @@ window.__ModuleLoader__.load({
 					borderLeft: `1px solid ${C.border}`
 				}
 			},
-				iconBtn("files", "文件", () => { setTab("files"); setCollapsed(false); }, tab === "files" && !collapsed),
-				iconBtn("git", data && data.git && data.git.isGit && data.git.changes.length > 0 ? `Git (${data.git.changes.length})` : "Git", () => { setTab("git"); setCollapsed(false); }, tab === "git" && !collapsed, data && data.git && data.git.isGit && data.git.changes.length > 0),
-				iconBtn("info", "信息", () => { setTab("info"); setCollapsed(false); }, tab === "info" && !collapsed),
-				react.createElement("div", { style: { flex: 1 } }),
-				iconBtn(collapsed ? "files" : "collapse", collapsed ? "展开" : "收起", () => setCollapsed((v) => !v), false));
+				iconBtn("files", "文件", () => selectTab("files"), tab === "files" && !collapsed),
+				iconBtn("git", data && data.git && data.git.isGit && data.git.changes.length > 0 ? `Git (${data.git.changes.length})` : "Git", () => selectTab("git"), tab === "git" && !collapsed, data && data.git && data.git.isGit && data.git.changes.length > 0),
+				iconBtn("info", "信息", () => selectTab("info"), tab === "info" && !collapsed),
+				react.createElement("div", { style: { flex: 1 } }));
 
 			const content = () => {
 				if (collapsed) return null;
@@ -419,13 +452,21 @@ window.__ModuleLoader__.load({
 				role: "complementary",
 				"aria-label": "工作区侧边栏",
 				style: {
-					display: "flex",
 					height: "100%",
+					position: "relative",
 					background: C.panel,
 					borderLeft: `1px solid ${C.border}`
 				}
 			},
-				react.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden" } }, content()),
+				react.createElement("div", {
+					style: {
+						height: "100%",
+						display: "flex",
+						flexDirection: "column",
+						overflow: "hidden",
+						paddingRight: 44
+					}
+				}, content()),
 				rail);
 		}
 
