@@ -1,0 +1,23 @@
+{
+  "name": "dsh-web-mobile",
+  "version": "0.1.0",
+  "description": "DSH plugin: phone-viewport adapter for the official dsh web shell. Single-column chat plus overlay sheets; feature-detects dsh-web-auth / dsh-sidebar / dsh-web-terminal without depending on them.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT"
+}

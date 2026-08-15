@@ -22,6 +22,7 @@
 |------|------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网/LAN/Tailscale 访问密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置/凭据等特权页在内网可用 | 独立 / 全部 |
 | [dsh-sidebar](plugins/dsh-sidebar/) | 右侧边栏：当前会话工作区文件树 + Git 状态/diff（pidance 式常驻菜单条），点击文件展开二级编辑 | 独立 / 全部 |
+| [dsh-web-mobile](plugins/dsh-web-mobile/) | 手机视口：官方三栏收成单栏对话 + 底栏叠层；独立可用，探测到 auth/sidebar/terminal 时自动接上 | 独立 / 全部 |
 
 ## 安装
 
