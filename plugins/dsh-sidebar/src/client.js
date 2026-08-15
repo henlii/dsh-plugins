@@ -65,7 +65,151 @@ window.__ModuleLoader__.load({
 			if (kind === "file") return react.createElement(SvgIcon, common, react.createElement("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" }), react.createElement("path", { d: "M14 2v6h6" }));
 			if (kind === "chevron") return react.createElement(SvgIcon, common, react.createElement("path", { d: "m6 9 6 6 6-6" }));
 			if (kind === "collapse") return react.createElement(SvgIcon, common, react.createElement("path", { d: "m9 18 6-6-6-6" }));
+			if (kind === "terminal") return react.createElement(SvgIcon, common,
+				react.createElement("path", { d: "M4 17l6-6-6-6" }),
+				react.createElement("path", { d: "M12 19h8" }));
 			return null;
+		}
+
+		// ── 终端面板（嵌在右侧栏的「终端」tab 里）────────────────────────────
+		// REPL 式：点击终端直接输入，Enter 执行，Ctrl+C 中断；tab 切换多个终端。
+		const wtRpc = async (method, args) => {
+			const res = await fetch(`/api/dsh-web-terminal/${method}`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(args ?? {})
+			});
+			let data = {};
+			try { data = await res.json(); } catch { /* non-json */ }
+			if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+			if (data.ok === false) throw new Error(data.error || "rpc failed");
+			return data;
+		};
+
+		function SidebarTerminal({ sessionId }) {
+			const el = react.createElement;
+			const [terms, setTerms] = react.useState([]);
+			const [activeId, setActiveId] = react.useState(null);
+			const [output, setOutput] = react.useState("");
+			const [line, setLine] = react.useState("");
+			const [busy, setBusy] = react.useState(false);
+			const [error, setError] = react.useState(null);
+			const outRef = react.useRef(null);
+
+			react.useEffect(() => {
+				if (!sessionId) return;
+				let alive = true;
+				let timer = null;
+				const tick = async () => {
+					try {
+						const snap = await wtRpc("snapshot", { sessionId });
+						if (!alive) return;
+						setTerms(snap.terminals || []);
+						setActiveId((cur) => {
+							if (cur && (snap.terminals || []).some((t) => t.terminal_id === cur)) return cur;
+							const mine = (snap.terminals || []).find((t) => t.mine);
+							return (mine || (snap.terminals || [])[0] || {}).terminal_id || null;
+						});
+					} catch (e) { if (alive) setError(e.message); }
+				};
+				tick();
+				timer = setInterval(tick, 1500);
+				return () => { alive = false; if (timer) clearInterval(timer); };
+			}, [sessionId]);
+
+			react.useEffect(() => {
+				if (!activeId || !sessionId) return;
+				let alive = true;
+				let timer = null;
+				const read = async () => {
+					try {
+						const page = await wtRpc("read", { sessionId, id: activeId, count: 600 });
+						if (alive) setOutput(page.text || "");
+					} catch (e) { if (alive) setError(e.message); }
+				};
+				read();
+				timer = setInterval(read, 1500);
+				return () => { alive = false; if (timer) clearInterval(timer); };
+			}, [activeId, sessionId]);
+
+			react.useEffect(() => {
+				if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+			}, [output]);
+
+			const active = terms.find((t) => t.terminal_id === activeId) || null;
+
+			const sendLine = (text) => {
+				const t = text.trim();
+				if (!t || !active || busy) return;
+				setBusy(true); setError(null);
+				wtRpc("send", { sessionId, id: active.terminal_id, text: t })
+					.catch((e) => setError(e.message))
+					.finally(() => setBusy(false));
+			};
+			const interrupt = () => {
+				if (!active) return;
+				setError(null);
+				wtRpc("signal", { sessionId, id: active.terminal_id, signal: "SIGINT" }).catch((e) => setError(e.message));
+			};
+			const doNew = () => {
+				setError(null);
+				wtRpc("spawn", { sessionId, name: "终端", cwd: "/" }).then((r) => setActiveId(r.terminal_id)).catch((e) => setError(e.message));
+			};
+			const killTab = (id) => {
+				setError(null);
+				wtRpc("kill", { sessionId, id }).catch((e) => setError(e.message));
+			};
+			const handleKey = (e) => {
+				if (e.ctrlKey && (e.key === "c" || e.key === "C")) { e.preventDefault(); interrupt(); return; }
+				if (e.key === "Enter") { e.preventDefault(); sendLine(line); setLine(""); return; }
+				if (e.key === "Backspace") { e.preventDefault(); setLine((l) => l.slice(0, -1)); return; }
+				if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+					e.preventDefault();
+					setLine((l) => l + e.key);
+				}
+			};
+
+			return el("div", {
+				style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", fontFamily: C.code, fontSize: 12, outline: "none" },
+				tabIndex: 0,
+				onKeyDown: handleKey,
+				onClick: (e) => { if (e.target === e.currentTarget) e.currentTarget.focus(); }
+			},
+				// tab 条
+				el("div", { style: { display: "flex", alignItems: "center", gap: 4, padding: "4px 2px", borderBottom: `1px solid ${C.border}`, overflowX: "auto", flex: "none" } },
+					(terms.length === 0 ? [] : terms).map((t) =>
+						el("span", {
+							key: t.terminal_id,
+							title: (t.mine ? "本会话 · " : "") + t.cwd,
+							onClick: () => setActiveId(t.terminal_id),
+							style: {
+								cursor: "pointer", whiteSpace: "nowrap", padding: "2px 6px", fontSize: 12,
+								color: t.terminal_id === activeId ? C.accent : C.muted,
+								borderBottom: t.terminal_id === activeId ? `2px solid ${C.accent}` : "2px solid transparent"
+							}
+						},
+							(t.mine ? "★" : "") + t.name,
+							el("span", { onClick: (e) => { e.stopPropagation(); killTab(t.terminal_id); }, style: { marginLeft: 4, opacity: 0.6, cursor: "pointer" } }, "×"))
+					),
+					el("span", { onClick: doNew, style: { cursor: "pointer", color: C.muted, padding: "0 4px", fontSize: 14, flex: "none" } }, "+")
+				),
+				// 输出 + 直接输入
+				el("div", {
+					ref: outRef,
+					style: { flex: 1, minHeight: 0, overflow: "auto", background: "#0d0f13", color: "#d4d7e0", padding: "8px 10px", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.5, cursor: "text" }
+				},
+					error ? el("div", { style: { color: "#f0a0a0" } }, "⚠ " + error) : null,
+					output.length > 0
+						? el("span", {}, output)
+						: el("span", { style: { color: "#6b7280" } }, active ? "（无输出。直接输入命令，Enter 执行）" : "（暂无终端，点 + 新建）"),
+					active ? el("span", {},
+						el("span", { style: { color: "#2e9e5b" } }, "dsh$ "),
+						line,
+						el("span", { style: { display: "inline-block", width: 7, height: 13, background: "#d4d7e0", verticalAlign: "text-bottom", animation: "dsh-wt-blink 1s steps(1) infinite" } }, " ")
+					) : null
+				),
+				el("style", {}, "@keyframes dsh-wt-blink{50%{opacity:0}}")
+			);
 		}
 
 		/** Map a git change to a display badge. */
@@ -395,6 +539,7 @@ window.__ModuleLoader__.load({
 				iconBtn("files", "文件", () => selectTab("files"), tab === "files" && !collapsed),
 				iconBtn("git", data && data.git && data.git.isGit && data.git.changes.length > 0 ? `Git (${data.git.changes.length})` : "Git", () => selectTab("git"), tab === "git" && !collapsed, data && data.git && data.git.isGit && data.git.changes.length > 0),
 				iconBtn("info", "信息", () => selectTab("info"), tab === "info" && !collapsed),
+				iconBtn("terminal", "终端", () => selectTab("terminal"), tab === "terminal" && !collapsed),
 				react.createElement("div", { style: { flex: 1 } }));
 
 			const content = () => {
@@ -439,6 +584,12 @@ window.__ModuleLoader__.load({
 									onClick: () => void save(),
 									style: { ...actionBtn, background: C.accent, color: "#fff", opacity: saving ? 0.6 : 1 }
 								}, saving ? "保存中…" : "保存"))));
+				}
+				// 终端 tab：独立于文件/git 数据，直接渲染
+				if (tab === "terminal") {
+					return react.createElement("div", { style: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } },
+						header("终端", null),
+						react.createElement(SidebarTerminal, { sessionId }));
 				}
 				if (loading && !data) return react.createElement("p", { style: { margin: 12, fontSize: 12, color: C.muted } }, "加载中…");
 				if (error && !data) return react.createElement("p", { style: { margin: 12, fontSize: 12, color: C.err } }, error);
