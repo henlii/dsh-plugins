@@ -7,7 +7,10 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 
 		const CSS = [
-			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:6px 0;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none;border-top:1px solid var(--dsw-alias-border-l2)}",
+			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:4px 0 6px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
+			// 分割线就是拖动杆：面板顶部的 1px 分隔线挂在 5px 的拖动条上
+			".wterm-resize{height:5px;flex:none;cursor:row-resize;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;margin:0}",
+			".wterm-resize:hover{border-top-color:var(--dsw-alias-brand-primary)}",
 			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0}",
 			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid transparent}",
 			".wterm-tab.active{border-bottom-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
@@ -18,9 +21,6 @@ window.__ModuleLoader__.load({
 			".wterm-tab .x{cursor:pointer;opacity:.6;padding:0 2px;font-size:13px;line-height:13px;font-family:inherit}",
 			".wterm-tab .x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}",
 			".wterm-add{box-sizing:border-box;height:24px;min-width:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;font-size:15px;line-height:24px;flex:none;padding:0 4px}",
-			".wterm-resize{height:8px;flex:none;cursor:row-resize;display:flex;align-items:center;justify-content:center}",
-			".wterm-resize::before{content:'';width:48px;height:3px;border-radius:2px;background:var(--dsw-alias-border-l2)}",
-			".wterm-resize:hover::before{background:var(--dsw-alias-brand-primary)}",
 			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:#0d0f13;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:#d4d7e0;flex:none;cursor:text}",
 			".wterm-empty{color:#6b7280}",
 			".wterm-line{white-space:pre-wrap;word-break:break-all}",
@@ -60,6 +60,27 @@ window.__ModuleLoader__.load({
 			const [error, setError] = React.useState(null);
 			const [height, setHeight] = React.useState(180);
 			const outRef = React.useRef(null);
+			const rootRef = React.useRef(null);
+
+			// 抵消 composer.dock 容器（uV2eYG_root 之类）的水平 padding，
+			// 让面板真正两端对齐：找到第一个带水平 padding 的祖先，读它的
+			// padding 值做负 margin（一次性，稳定）。
+			React.useEffect(() => {
+				const el = rootRef.current;
+				if (!el) return;
+				let a = el.parentElement;
+				while (a) {
+					const cs = getComputedStyle(a);
+					const pl = parseFloat(cs.paddingLeft) || 0;
+					const pr = parseFloat(cs.paddingRight) || 0;
+					if (pl > 0 || pr > 0) {
+						el.style.marginLeft = pl > 0 ? "-" + pl + "px" : "0px";
+						el.style.marginRight = pr > 0 ? "-" + pr + "px" : "0px";
+						break;
+					}
+					a = a.parentElement;
+				}
+			}, [open]);
 
 			// drag the handle to resize the terminal output height
 			const startResize = (e) => {
@@ -160,6 +181,7 @@ window.__ModuleLoader__.load({
 			if (!open) {
 				return el("button", {
 					className: "wterm-bar",
+					ref: rootRef,
 					title: "打开终端面板（输入框下方）",
 					onClick: () => setOpen(true)
 				},
@@ -168,7 +190,9 @@ window.__ModuleLoader__.load({
 				);
 			}
 
-			return el("div", { className: "wterm", tabIndex: 0, onKeyDown: handleKey, onClick: (e) => { if (e.target === e.currentTarget) e.currentTarget.focus(); } },
+			return el("div", { className: "wterm", ref: rootRef, tabIndex: 0, onKeyDown: handleKey, onClick: (e) => { if (e.target === e.currentTarget) e.currentTarget.focus(); } },
+				// 分割线即拖动杆：面板顶部 1px 分隔线可上下拖动调整高度
+				el("div", { className: "wterm-resize", title: "拖动调整终端高度", onMouseDown: startResize }),
 				el("div", { className: "wterm-tabs" },
 					(terms.length === 0 ? [] : terms).map((t) =>
 						el("button", {
@@ -189,7 +213,6 @@ window.__ModuleLoader__.load({
 					el("span", { style: { flex: 1 } }),
 					el("button", { className: "wterm-tab", title: "收起", onClick: () => setOpen(false) }, "▾")
 				),
-				el("div", { className: "wterm-resize", title: "拖动调整高度", onMouseDown: startResize }),
 				el("div", { className: "wterm-out", ref: outRef, style: { height: height + "px" } },
 					output.length > 0
 						? el("span", { className: "wterm-line" }, output)
