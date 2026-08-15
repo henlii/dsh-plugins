@@ -10,7 +10,9 @@ window.__ModuleLoader__.load({
 			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:2px 0 6px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
 			// 分割线即拖动杆：与上方 composer 的底边重叠成一条细线（-1px），
 			// 样式对齐右侧栏的 1px 分隔线；拖动提示只靠 row-resize 光标
-			".wterm-resize{height:3px;flex:none;cursor:row-resize;border-top:1px solid rgba(0,0,0,0.1);margin:-1px 0 0;background:transparent}",
+			".wterm-resize{height:3px;flex:none;cursor:row-resize;border-top:1px solid rgba(0,0,0,0.1);margin:-1px 0 0;background:transparent;position:relative}",
+			// 细线中间的小圆角方块（对齐右侧栏分隔线中间的标识块）
+			".wterm-resize::after{content:'';position:absolute;left:50%;top:-2px;transform:translateX(-50%);width:44px;height:4px;border-radius:2px;background:rgba(0,0,0,0.12)}",
 			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0}",
 			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid transparent}",
 			".wterm-tab.active{border-bottom-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
@@ -237,12 +239,6 @@ window.__ModuleLoader__.load({
 			if (slots === undefined) return;
 
 			// Below the input box (composer card) — the bottom-most panel seat.
-			// 先用同 id "stats" 替换掉官方统计行（那个夹在分隔线中间的标识块），
-			// 让终端分隔区干净如右侧栏。
-			slots.inject("conversation.composer.dock", () => slots.register(
-				{ name: "conversation.composer.dock", id: "stats", order: 0 },
-				() => null
-			));
 			slots.inject("conversation.composer.dock", () => slots.register(
 				{ name: "conversation.composer.dock", id: "web-terminal", order: 10 },
 				(props) => React.createElement(TerminalPanel, props)
