@@ -7,11 +7,10 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 
 		const CSS = [
-			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:4px 0 6px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
-			// 分割线就是拖动杆：面板顶部的分隔线由上方 composer 卡片自带底边提供，
-			// 这里只留 5px 的拖动热区（透明，hover 高亮品牌色）
-			".wterm-resize{height:5px;flex:none;cursor:row-resize;border-top:1px solid transparent;background:transparent;margin:0}",
-			".wterm-resize:hover{border-top-color:var(--dsw-alias-brand-primary)}",
+			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:2px 0 6px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
+			// 分割线即拖动杆：与上方 composer 的底边重叠成一条细线（-1px），
+			// 样式对齐右侧栏的 1px 分隔线；拖动提示只靠 row-resize 光标
+			".wterm-resize{height:3px;flex:none;cursor:row-resize;border-top:1px solid rgba(0,0,0,0.1);margin:-1px 0 0;background:transparent}",
 			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0}",
 			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid transparent}",
 			".wterm-tab.active{border-bottom-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
