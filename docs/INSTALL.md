@@ -40,7 +40,7 @@ dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-web-auth
 #          config: { ... }
 ```
 
-每个插件的具体配置项见其 `plugins/<name>/README.md`。
+每个插件的具体配置项见其 `plugins/<name>/README.md`。独立安装示例见 `examples/<name>/cordis.patch.yml`（若有）。
 
 ## 配置 HMR
 

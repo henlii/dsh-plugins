@@ -20,3 +20,7 @@
     - id: sidebar
       name: 'dsh-sidebar'
       config: {}
+
+    - id: web-mobile
+      name: 'dsh-web-mobile'
+      config: {}
