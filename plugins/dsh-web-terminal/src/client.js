@@ -8,8 +8,9 @@ window.__ModuleLoader__.load({
 
 		const CSS = [
 			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:4px 0 6px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
-			// 分割线就是拖动杆：面板顶部的 1px 分隔线挂在 5px 的拖动条上
-			".wterm-resize{height:5px;flex:none;cursor:row-resize;border-top:1px solid var(--dsw-alias-border-l2);background:transparent;margin:0}",
+			// 分割线就是拖动杆：面板顶部的分隔线由上方 composer 卡片自带底边提供，
+			// 这里只留 5px 的拖动热区（透明，hover 高亮品牌色）
+			".wterm-resize{height:5px;flex:none;cursor:row-resize;border-top:1px solid transparent;background:transparent;margin:0}",
 			".wterm-resize:hover{border-top-color:var(--dsw-alias-brand-primary)}",
 			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0}",
 			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid transparent}",
@@ -194,6 +195,8 @@ window.__ModuleLoader__.load({
 				// 分割线即拖动杆：面板顶部 1px 分隔线可上下拖动调整高度
 				el("div", { className: "wterm-resize", title: "拖动调整终端高度", onMouseDown: startResize }),
 				el("div", { className: "wterm-tabs" },
+					// 折叠按钮放最前
+					el("button", { className: "wterm-tab", title: "收起", onClick: () => setOpen(false) }, "▾"),
 					(terms.length === 0 ? [] : terms).map((t) =>
 						el("button", {
 							key: t.terminal_id,
@@ -210,10 +213,10 @@ window.__ModuleLoader__.load({
 						)
 					),
 					el("button", { className: "wterm-add", title: "新建终端", onClick: doNew }, "+"),
-					el("span", { style: { flex: 1 } }),
-					el("button", { className: "wterm-tab", title: "收起", onClick: () => setOpen(false) }, "▾")
+					el("span", { style: { flex: 1 } })
 				),
 				el("div", { className: "wterm-out", ref: outRef, style: { height: height + "px" } },
+					error ? el("div", { style: { color: "var(--dsw-alias-state-error-primary)" }, className: "wterm-empty" }, "⚠ " + error) : null,
 					output.length > 0
 						? el("span", { className: "wterm-line" }, output)
 						: el("span", { className: "wterm-empty" }, active ? "（无输出。直接在终端里输入命令，Enter 执行）" : "（暂无终端，点 + 新建）"),
@@ -222,10 +225,6 @@ window.__ModuleLoader__.load({
 						line,
 						el("span", { className: "wterm-cursor" }, " ")
 					) : null
-				),
-				el("div", { className: "wterm-note" },
-					"在终端里直接输入，Enter 执行；Ctrl+C 中断；命令结束会通知使用它的会话" + (busy ? "（执行中…）" : ""),
-					error ? el("span", { style: { color: "var(--dsw-alias-state-error-primary)" } }, "　⚠ " + error) : null
 				)
 			);
 		}
