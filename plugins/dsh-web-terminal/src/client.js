@@ -7,14 +7,21 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 
 		const CSS = [
-			".wterm-dock{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:8px;padding:10px 12px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}",
+			".wterm-dock{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:6px;padding:6px 10px 10px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}",
+			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin}",
+			".wterm-tab{box-sizing:border-box;height:26px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px 6px 0 0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px}",
+			".wterm-tab.active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-0,#0d0f13)}",
+			".wterm-tab.mine{outline:1px solid var(--dsw-alias-brand-primary)}",
+			".wterm-tab .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}",
+			".wterm-tab .dot.running{background:var(--dsw-alias-state-success-primary)}",
+			".wterm-tab .dot.exited{background:var(--dsw-alias-state-error-primary)}",
+			".wterm-tab .x{cursor:pointer;opacity:.6;padding:0 2px;font-size:14px;line-height:14px;font-family:inherit}",
+			".wterm-tab .x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}",
+			".wterm-add{box-sizing:border-box;height:26px;width:26px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;font-size:16px;line-height:24px;flex:none}",
+			".wterm-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
 			".wterm-head{align-items:center;gap:10px;display:flex;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}",
-			".wterm-dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}",
-			".wterm-dot.running{background:var(--dsw-alias-state-success-primary)}",
-			".wterm-dot.idle{background:var(--dsw-alias-state-warn-primary)}",
-			".wterm-dot.exited{background:var(--dsw-alias-state-error-primary)}",
 			".wterm-title{font-weight:600;color:var(--dsw-alias-label-primary)}",
-			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:var(--dsw-alias-bg-layer-0,#0d0f13);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary);flex:none}",
+			".wterm-out{box-sizing:border-box;height:200px;overflow:auto;background:var(--dsw-alias-bg-layer-0,#0d0f13);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary);flex:none}",
 			".wterm-empty{color:var(--dsw-alias-label-dimmed)}",
 			".wterm-row{align-items:center;gap:8px;display:flex}",
 			".wterm-input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;height:32px;padding:0 10px;font-size:13px;font-family:inherit;flex:1;min-width:0}",
@@ -30,24 +37,15 @@ window.__ModuleLoader__.load({
 			".wterm-toggle.on{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}"
 		].join("");
 
-		// ── module-level panel-open store (shared by toggle + dock) ─────────
 		let panelOpen = false;
 		const listeners = new Set();
-		function setPanelOpen(v) {
-			if (panelOpen === v) return;
-			panelOpen = v;
-			listeners.forEach((l) => l());
-		}
+		function setPanelOpen(v) { if (panelOpen === v) return; panelOpen = v; listeners.forEach((l) => l()); }
 		function usePanelOpen() {
 			const [open, setOpen] = React.useState(panelOpen);
-			React.useEffect(() => {
-				listeners.add(setOpen);
-				return () => listeners.delete(setOpen);
-			}, []);
+			React.useEffect(() => { listeners.add(setOpen); return () => listeners.delete(setOpen); }, []);
 			return open;
 		}
 
-		// ── RPC ─────────────────────────────────────────────────────────────
 		const rpc = async (method, args) => {
 			const res = await fetch(`/api/dsh-web-terminal/${method}`, {
 				method: "POST",
@@ -56,7 +54,7 @@ window.__ModuleLoader__.load({
 			});
 			let data = {};
 			try { data = await res.json(); } catch { /* non-json */ }
-			if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+			if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { code: data.code });
 			if (data.ok === false) throw Object.assign(new Error(data.error || "rpc failed"), { code: data.code });
 			return data;
 		};
@@ -64,12 +62,12 @@ window.__ModuleLoader__.load({
 		function TerminalPanel(props) {
 			const el = React.createElement;
 			const sessionId = props.sessionId;
-			const [sessions, setSessions] = React.useState([]);
+			const [terms, setTerms] = React.useState([]);
+			const [activeId, setActiveId] = React.useState(null);
 			const [output, setOutput] = React.useState("");
 			const [input, setInput] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState(null);
-			const [status, setStatus] = React.useState("idle");
 
 			React.useEffect(() => {
 				if (!sessionId) return;
@@ -79,83 +77,93 @@ window.__ModuleLoader__.load({
 					try {
 						const snap = await rpc("snapshot", { sessionId });
 						if (!alive) return;
-						setSessions(snap.sessions || []);
-						if (snap.sessions && snap.sessions.length > 0) {
-							const s = snap.sessions[0];
-							setStatus(s.status);
-							const page = await rpc("read", { sessionId, id: s.sessionId, count: 500 });
-							if (alive) setOutput(page.text || "");
-						} else {
-							setStatus("idle");
-							setOutput("");
-						}
-					} catch (e) {
-						if (alive) { setError(e.message); setStatus("error"); }
-					}
+						setTerms(snap.terminals || []);
+						setActiveId((cur) => {
+							if (cur && (snap.terminals || []).some((t) => t.terminal_id === cur)) return cur;
+							const mine = (snap.terminals || []).find((t) => t.mine);
+							return (mine || (snap.terminals || [])[0] || {}).terminal_id || null;
+						});
+					} catch (e) { if (alive) setError(e.message); }
 				};
 				tick();
 				timer = setInterval(tick, 1000);
 				return () => { alive = false; if (timer) clearInterval(timer); };
 			}, [sessionId]);
 
+			React.useEffect(() => {
+				if (!activeId || !sessionId) return;
+				let alive = true;
+				let timer = null;
+				const read = async () => {
+					try {
+						const page = await rpc("read", { sessionId, id: activeId, count: 500 });
+						if (alive) setOutput(page.text || "");
+					} catch (e) { if (alive) setError(e.message); }
+				};
+				read();
+				timer = setInterval(read, 1000);
+				return () => { alive = false; if (timer) clearInterval(timer); };
+			}, [activeId, sessionId]);
+
 			const act = async (fn) => {
 				if (busy) return;
 				setBusy(true); setError(null);
-				try { await fn(); } catch (e) { setError(e.code === "SEND_ACTIVE" ? "agent 正在使用该终端（发送冲突）" : e.message); }
+				try { await fn(); } catch (e) { setError(e.code === "SEND_ACTIVE" ? "该终端正被使用（发送冲突）" : e.message); }
 				finally { setBusy(false); }
 			};
+			const active = terms.find((t) => t.terminal_id === activeId) || null;
 
 			const doSend = () => {
 				const text = input.trim();
-				if (!text) return;
-				const id = sessions.length > 0 ? sessions[0].sessionId : "";
-				act(async () => {
-					await rpc("send", { sessionId, id, text });
-					setInput("");
-				});
+				if (!text || !active) return;
+				act(async () => { await rpc("send", { sessionId, id: active.terminal_id, text }); setInput(""); });
 			};
-			const doSignal = (sig) => {
-				const id = sessions.length > 0 ? sessions[0].sessionId : "";
-				act(() => rpc("signal", { sessionId, id, signal: sig }));
-			};
-			const doKill = () => {
-				const id = sessions.length > 0 ? sessions[0].sessionId : "";
-				act(() => rpc("kill", { sessionId, id }));
-			};
-			const doSpawn = () => act(() => rpc("spawn", { sessionId }));
+			const doSignal = (sig) => { if (active) act(() => rpc("signal", { sessionId, id: active.terminal_id, signal: sig })); };
+			const doKill = () => { if (active) act(() => rpc("kill", { sessionId, id: active.terminal_id })); };
+			const doNew = () => act(async () => { const r = await rpc("spawn", { sessionId, name: "新终端", cwd: "/" }); setActiveId(r.terminal_id); });
 
-			const dot = status === "running" ? "running" : status === "exited" ? "exited" : "idle";
 			return el("div", { className: "wterm-dock" },
+				el("div", { className: "wterm-tabs" },
+					(terms.length === 0 ? [] : terms).map((t) =>
+						el("button", {
+							key: t.terminal_id,
+							className: "wterm-tab" + (t.terminal_id === activeId ? " active" : "") + (t.mine ? " mine" : ""),
+							title: (t.mine ? "本会话 · " : "") + t.cwd,
+							onClick: () => setActiveId(t.terminal_id)
+						},
+							el("span", { className: "dot " + (t.status === "running" ? "running" : "exited") }),
+							t.name + (t.mine ? " ★" : ""),
+							el("span", {
+								className: "x",
+								onClick: (e) => { e.stopPropagation(); act(() => rpc("kill", { sessionId, id: t.terminal_id })); }
+							}, "×")
+						)
+					),
+					el("button", { className: "wterm-add", title: "新建终端", onClick: doNew }, "+")
+				),
 				el("div", { className: "wterm-head" },
-					el("span", { className: "wterm-dot " + dot }),
-					el("span", { className: "wterm-title" }, "Agent 持久终端"),
-					el("span", {}, "shell: " + (sessions.length > 0 ? sessions[0].sessionId : "未启动")),
-					el("span", {}, "状态: " + status),
-					sessions.length === 0
-						? el("button", { className: "wterm-btn primary", disabled: busy, onClick: doSpawn }, "启动 shell")
-						: el("button", { className: "wterm-btn", disabled: busy, onClick: () => { setSessions([]); setOutput(""); } }, "刷新")
+					el("span", { className: "wterm-title" }, "终端" + (active ? " · " + active.name : "")),
+					el("span", {}, active ? (active.status === "running" ? "运行中" : active.status) + (active.mine ? " · 本会话" : "") : "无终端"),
+					el("span", { style: { flex: 1 } }),
+					el("span", { className: "wterm-note" }, "独立终端，与会话无关；命令结束会通知使用它的会话")
 				),
 				el("div", { className: "wterm-out" },
-					output.length > 0
-						? output
-						: el("span", { className: "wterm-empty" }, status === "running" ? "（运行中，无输出…）" : "（无输出。agent 执行 bash 命令或点击「启动 shell」后会显示）")
+					output.length > 0 ? output : el("span", { className: "wterm-empty" }, active ? "（无输出。agent 或你在本终端执行命令后显示）" : "（暂无终端，点 + 新建）")
 				),
 				el("div", { className: "wterm-row" },
 					el("input", {
 						className: "wterm-input",
 						value: input,
-						placeholder: "输入命令发送到 agent 的 shell（Enter 发送，agent 会看到通知）",
+						placeholder: "输入命令发送到当前终端（Enter 发送，执行结束会通知 agent）",
 						onChange: (e) => setInput(e.target.value),
 						onKeyDown: (e) => { if (e.key === "Enter") doSend(); },
-						disabled: busy
+						disabled: busy || !active
 					}),
-					el("button", { className: "wterm-btn primary", disabled: busy || !input.trim(), onClick: doSend }, "发送"),
-					el("button", { className: "wterm-btn", disabled: busy, onClick: () => doSignal("SIGINT") }, "中断"),
-					el("button", { className: "wterm-btn danger", disabled: busy, onClick: () => doSignal("SIGKILL") }, "强杀"),
-					el("button", { className: "wterm-btn danger", disabled: busy, onClick: doKill }, "关闭")
+					el("button", { className: "wterm-btn primary", disabled: busy || !active || !input.trim(), onClick: doSend }, "发送"),
+					el("button", { className: "wterm-btn", disabled: busy || !active, onClick: () => doSignal("SIGINT") }, "中断"),
+					el("button", { className: "wterm-btn danger", disabled: busy || !active, onClick: () => doSignal("SIGKILL") }, "强杀")
 				),
-				error ? el("div", { className: "wterm-note", style: { color: "var(--dsw-alias-state-error-primary)" } }, "⚠ " + error) : null,
-				el("div", { className: "wterm-note" }, "你在终端里的发送/中断会以通知形式注入会话，agent 下一轮即可看到。")
+				error ? el("div", { className: "wterm-note", style: { color: "var(--dsw-alias-state-error-primary)" } }, "⚠ " + error) : null
 			);
 		}
 
@@ -164,7 +172,7 @@ window.__ModuleLoader__.load({
 			const open = usePanelOpen();
 			return el("button", {
 				className: "wterm-toggle" + (open ? " on" : ""),
-				title: "打开/关闭 agent 持久终端面板",
+				title: "打开/关闭终端面板（底部栏）",
 				onClick: () => setPanelOpen(!open)
 			}, open ? "终端 ▾" : "终端");
 		}
