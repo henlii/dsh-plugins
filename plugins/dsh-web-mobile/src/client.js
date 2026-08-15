@@ -21,28 +21,45 @@ window.__ModuleLoader__.load({
 		const CSS = [
 			"html[data-dsh-mobile],html[data-dsh-mobile] body{overflow:hidden;height:100%;overscroll-behavior:none}",
 			"html[data-dsh-mobile]{--dshm-chrome:" + TABBAR_H + "px;--dshm-kb:0px;--dshm-safe-b:env(safe-area-inset-bottom,0px);--dshm-safe-t:env(safe-area-inset-top,0px)}",
-			"html[data-dsh-mobile][data-dsh-mobile-kb]{--dshm-chrome:0px}",
+			"html[data-dsh-mobile][data-dsh-mobile-kb],html[data-dsh-mobile][data-dsh-mobile-modal]{--dshm-chrome:0px}",
 			"html[data-dsh-mobile] [class$=\"frame\"]{grid-template-columns:0 minmax(0,1fr) 0 !important;height:100dvh;height:100svh;box-sizing:border-box;padding-bottom:calc(var(--dshm-chrome) + var(--dshm-safe-b) + var(--dshm-kb))}",
 			"html[data-dsh-mobile] [class$=\"handle\"]{display:none !important}",
-			"html[data-dsh-mobile] [class$=\"centerCol\"]{padding-right:0 !important;--dsh-chat-content-width:100%;--dsh-composer-side-clearance:8px;--dsh-composer-dock-inset:4px}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"]{padding-right:0 !important;--dsh-chat-content-width:100%;--dsh-composer-side-clearance:8px;--dsh-composer-dock-inset:4px;min-width:0}",
 			"html[data-dsh-mobile] [class$=\"centerCol\"] textarea,html[data-dsh-mobile] [class$=\"centerCol\"] input{font-size:16px !important}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] [class$=\"header\"]{padding:8px 12px 0 !important}",
+			"html[data-dsh-mobile] [class$=\"sessionLogButton\"]{display:none !important}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] [class$=\"crumb\"]{max-width:42vw !important}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] [class$=\"headline\"]{font-size:20px !important;line-height:26px !important;column-gap:6px !important}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] [class$=\"scroll\"]{padding-left:12px !important;padding-right:12px !important}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] table{display:block;width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] pre,html[data-dsh-mobile] [class$=\"centerCol\"] .wSkVaW_root pre{max-width:100%;overflow-x:auto}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] [class$=\"composerStack\"] [class$=\"root\"]{white-space:normal !important;overflow:visible !important;text-overflow:unset !important}",
+			"html[data-dsh-mobile] button[aria-label=\"收起侧边栏\"],html[data-dsh-mobile] button[aria-label=\"打开侧边栏\"],html[data-dsh-mobile] [class$=\"railFish\"]{display:none !important}",
 			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"sessions\"]) [class$=\"sidebarCol\"]{visibility:hidden;pointer-events:none}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"sessions\"] [class$=\"sidebarCol\"]{position:fixed;inset:0 auto 0 0;width:min(22rem,86vw)!important;height:100dvh;z-index:36;overflow:auto;visibility:visible;pointer-events:auto;box-shadow:8px 0 32px rgba(0,0,0,.2);background:var(--dsw-specific-sidebar-fill,#f6f7f9);padding-bottom:calc(var(--dshm-chrome) + var(--dshm-safe-b));box-sizing:border-box}",
 			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"workspace\"]) [class$=\"detailsCol\"]{visibility:hidden;pointer-events:none}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] [class$=\"detailsCol\"]{position:fixed;inset:0;width:100vw!important;height:100dvh;z-index:36;overflow:hidden;visibility:visible;pointer-events:auto;background:var(--dsw-specific-sidebar-fill,#f6f7f9);padding-bottom:calc(var(--dshm-chrome) + var(--dshm-safe-b));box-sizing:border-box}",
 			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"workspace\"]) nav[aria-label=\"dsh-sidebar 导航\"]{display:none !important}",
-			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] nav[aria-label=\"dsh-sidebar 导航\"]{display:flex !important;flex-direction:row !important;justify-content:space-around !important;align-items:center !important;top:0 !important;left:0 !important;right:0 !important;bottom:auto !important;width:100% !important;height:calc(48px + var(--dshm-safe-t)) !important;padding:var(--dshm-safe-t) 8px 0 !important;z-index:37 !important;border-left:none !important;border-bottom:1px solid var(--dsw-alias-border-l1,#e2e6ec)}",
+			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] nav[aria-label=\"dsh-sidebar 导航\"]{display:flex !important;flex-direction:row !important;justify-content:space-around !important;align-items:center !important;top:0 !important;left:0 !important;right:0 !important;bottom:auto !important;width:100% !important;height:calc(48px + var(--dshm-safe-t)) !important;padding:var(--dshm-safe-t) 8px 0 !important;z-index:37 !important;border-left:none !important;border-bottom:1px solid var(--dsw-alias-border-l1,#e2e6ec);box-sizing:border-box !important}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] nav[aria-label=\"dsh-sidebar 导航\"]>div{display:none !important}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] [role=\"complementary\"][aria-label=\"工作区侧边栏\"]{padding-right:0 !important;padding-top:calc(48px + var(--dshm-safe-t))}",
 			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"terminal\"]) .wterm{display:none !important}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"terminal\"] .wterm{display:flex !important;position:fixed;left:0;right:0;top:var(--dshm-safe-t);bottom:calc(var(--dshm-chrome) + var(--dshm-safe-b));z-index:36;margin:0 !important;padding:8px 10px 6px;background:var(--dsw-alias-bg-base,#fff);height:auto}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"terminal\"] .wterm-out{flex:1 1 auto !important;height:auto !important;min-height:120px}",
+			"html[data-dsh-mobile] [class$=\"overlayLayer\"]{z-index:50 !important}",
+			"html[data-dsh-mobile] [class$=\"overlay\"]>[class$=\"panel\"]{flex-direction:column !important;width:100% !important;max-width:100% !important;height:100% !important;max-height:100% !important;border-radius:0 !important;margin:0 !important}",
+			"html[data-dsh-mobile] [class$=\"overlay\"]>[class$=\"panel\"]>[class$=\"nav\"]{width:100% !important;max-width:none !important;flex:none !important;height:auto !important;max-height:40vh;overflow:auto;border-right:none !important}",
+			"html[data-dsh-mobile] [class$=\"overlay\"]>[class$=\"panel\"]>[class$=\"content\"]{width:100% !important;max-width:none !important;flex:1 1 auto !important;min-width:0 !important;min-height:0 !important;overflow:auto !important}",
+			"html[data-dsh-mobile] [class$=\"overlay\"] [class$=\"close\"]{position:fixed !important;top:10px;right:12px;z-index:60}",
+			"html[data-dsh-mobile] [class$=\"overlay\"] [class$=\"navTitle\"]{padding-right:48px !important}",
+			"html[data-dsh-mobile] [class$=\"overlay\"] [class$=\"navCell\"]{min-height:40px}",
+			"html[data-dsh-mobile] [class$=\"centerCol\"] [class$=\"header\"]{background:var(--dsw-alias-bg-base,#fff) !important;z-index:3}",
 			"html[data-dsh-mobile] #dsh-web-auth-overlay>div{width:min(360px,calc(100vw - 32px)) !important;max-width:calc(100vw - 32px) !important;margin:var(--dshm-safe-t) 16px var(--dshm-safe-b)}",
 			"html[data-dsh-mobile] #dsh-web-auth-overlay input,html[data-dsh-mobile] #dsh-web-auth-overlay button{min-height:44px !important;font-size:16px !important}",
 			"@media (max-width:639.98px){#dsh-web-auth-overlay>div{width:min(360px,calc(100vw - 32px)) !important}#dsh-web-auth-overlay input,#dsh-web-auth-overlay button{min-height:44px !important;font-size:16px !important}}",
 			"#dsh-web-mobile-root{display:none}",
 			"html[data-dsh-mobile] #dsh-web-mobile-root{display:block}",
-			"html[data-dsh-mobile][data-dsh-mobile-kb] #dsh-web-mobile-root .dshm-tabbar{display:none}",
+			"html[data-dsh-mobile][data-dsh-mobile-kb] #dsh-web-mobile-root .dshm-tabbar,html[data-dsh-mobile][data-dsh-mobile-modal] #dsh-web-mobile-root .dshm-tabbar{display:none}",
 			".dshm-backdrop{position:fixed;inset:0;z-index:34;background:rgba(10,12,18,.45);border:0;padding:0;margin:0;cursor:pointer}",
 			".dshm-tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;height:calc(" + TABBAR_H + "px + env(safe-area-inset-bottom,0px));padding:0 4px env(safe-area-inset-bottom,0px);display:flex;align-items:stretch;gap:2px;background:var(--dsw-alias-bg-layer-1,#fff);border-top:1px solid var(--dsw-alias-border-l1,#e2e6ec);box-sizing:border-box}",
 			".dshm-tab{flex:1;min-width:0;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);font:600 11px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;padding:6px 4px}",
@@ -326,6 +343,7 @@ window.__ModuleLoader__.load({
 				html.removeAttribute("data-dsh-mobile");
 				html.removeAttribute("data-dsh-mobile-pane");
 				html.removeAttribute("data-dsh-mobile-kb");
+				html.removeAttribute("data-dsh-mobile-modal");
 				html.style.removeProperty("--dshm-kb");
 				backdrop.hidden = true;
 			}
@@ -341,6 +359,24 @@ window.__ModuleLoader__.load({
 			}
 
 			backdrop.addEventListener("click", () => setPane("chat"));
+
+			// Picking a session in the drawer should reveal the transcript.
+			// Ignore the "…" menu / 设置 so those stay on the sessions pane.
+			document.addEventListener("click", (event) => {
+				if (!html.hasAttribute("data-dsh-mobile") || pane !== "sessions") return;
+				const t = event.target;
+				if (!t || !t.closest) return;
+				if (t.closest("button[aria-label*=\"操作\"], button[aria-label*=\"设置\"], .dshm-tabbar, .dshm-backdrop")) return;
+				if (t.closest("[role=\"treeitem\"]")) setPane("chat");
+			}, true);
+
+			function syncModal() {
+				const settings = document.querySelector("[class$=\"overlay\"] > [class$=\"panel\"]");
+				const layer = document.querySelector("[class$=\"overlayLayer\"]");
+				const layerOpen = !!(layer && layer.querySelector("[class$=\"panel\"], [role=\"dialog\"]"));
+				if (settings || layerOpen) html.setAttribute("data-dsh-mobile-modal", "");
+				else html.removeAttribute("data-dsh-mobile-modal");
+			}
 
 			// Sidebar auto-opens details on session change; on phone that
 			// would cover the transcript unless the user asked for 工作区.
@@ -369,6 +405,7 @@ window.__ModuleLoader__.load({
 				extras = next;
 				if (changed && html.hasAttribute("data-dsh-mobile")) paintTabs();
 				attachFrameWatch();
+				syncModal();
 			});
 			treeWatch.observe(document.documentElement, { childList: true, subtree: true });
 
@@ -402,6 +439,7 @@ window.__ModuleLoader__.load({
 			document.addEventListener("pointerdown", onPointerDown);
 
 			syncMode();
+			syncModal();
 
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
