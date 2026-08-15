@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({
 
 		const CSS = [
 			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:6px 0;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none;border-top:1px solid var(--dsw-alias-border-l2)}",
-			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0 2px}",
+			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0}",
 			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid transparent}",
 			".wterm-tab.active{border-bottom-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
 			".wterm-tab.mine{color:var(--dsw-alias-brand-primary)}",
@@ -18,14 +18,17 @@ window.__ModuleLoader__.load({
 			".wterm-tab .x{cursor:pointer;opacity:.6;padding:0 2px;font-size:13px;line-height:13px;font-family:inherit}",
 			".wterm-tab .x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}",
 			".wterm-add{box-sizing:border-box;height:24px;min-width:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;font-size:15px;line-height:24px;flex:none;padding:0 4px}",
-			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:#0d0f13;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:#d4d7e0;flex:none;cursor:text;margin:0 2px}",
+			".wterm-resize{height:8px;flex:none;cursor:row-resize;display:flex;align-items:center;justify-content:center}",
+			".wterm-resize::before{content:'';width:48px;height:3px;border-radius:2px;background:var(--dsw-alias-border-l2)}",
+			".wterm-resize:hover::before{background:var(--dsw-alias-brand-primary)}",
+			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:#0d0f13;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:#d4d7e0;flex:none;cursor:text}",
 			".wterm-empty{color:#6b7280}",
 			".wterm-line{white-space:pre-wrap;word-break:break-all}",
 			".wterm-cursor{display:inline-block;width:7px;height:14px;background:#d4d7e0;vertical-align:text-bottom;animation:wterm-blink 1s steps(1) infinite}",
 			"@keyframes wterm-blink{50%{opacity:0}}",
-			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:28px;padding:0 2px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
+			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:28px;padding:0;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
 			".wterm-bar:hover{color:var(--dsw-alias-label-primary)}",
-			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);font-family:inherit;flex:none;padding:0 2px}"
+			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);font-family:inherit;flex:none;padding:0}"
 		].join("");
 
 		const rpc = async (method, args) => {
@@ -55,7 +58,25 @@ window.__ModuleLoader__.load({
 			const [line, setLine] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState(null);
+			const [height, setHeight] = React.useState(180);
 			const outRef = React.useRef(null);
+
+			// drag the handle to resize the terminal output height
+			const startResize = (e) => {
+				e.preventDefault();
+				const startY = e.clientY;
+				const startH = height;
+				const onMove = (ev) => {
+					const next = Math.max(60, Math.min(600, startH + (startY - ev.clientY)));
+					setHeight(next);
+				};
+				const onUp = () => {
+					document.removeEventListener("mousemove", onMove);
+					document.removeEventListener("mouseup", onUp);
+				};
+				document.addEventListener("mousemove", onMove);
+				document.addEventListener("mouseup", onUp);
+			};
 
 			React.useEffect(() => {
 				if (!sessionId || !open) return;
@@ -168,7 +189,8 @@ window.__ModuleLoader__.load({
 					el("span", { style: { flex: 1 } }),
 					el("button", { className: "wterm-tab", title: "收起", onClick: () => setOpen(false) }, "▾")
 				),
-				el("div", { className: "wterm-out", ref: outRef },
+				el("div", { className: "wterm-resize", title: "拖动调整高度", onMouseDown: startResize }),
+				el("div", { className: "wterm-out", ref: outRef, style: { height: height + "px" } },
 					output.length > 0
 						? el("span", { className: "wterm-line" }, output)
 						: el("span", { className: "wterm-empty" }, active ? "（无输出。直接在终端里输入命令，Enter 执行）" : "（暂无终端，点 + 新建）"),
