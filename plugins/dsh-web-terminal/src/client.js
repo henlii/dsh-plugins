@@ -7,33 +7,26 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 
 		const CSS = [
-			".wterm-dock{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:6px;padding:6px 10px 10px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}",
-			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin}",
-			".wterm-tab{box-sizing:border-box;height:26px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px 6px 0 0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px}",
-			".wterm-tab.active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-0,#0d0f13)}",
+			".wterm{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:4px;padding:6px 10px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
+			".wterm:focus{border-color:var(--dsw-alias-brand-primary)}",
+			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none}",
+			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;padding:0 8px;font-size:12px;line-height:22px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px}",
+			".wterm-tab.active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
 			".wterm-tab.mine{outline:1px solid var(--dsw-alias-brand-primary)}",
 			".wterm-tab .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}",
 			".wterm-tab .dot.running{background:var(--dsw-alias-state-success-primary)}",
 			".wterm-tab .dot.exited{background:var(--dsw-alias-state-error-primary)}",
-			".wterm-tab .x{cursor:pointer;opacity:.6;padding:0 2px;font-size:14px;line-height:14px;font-family:inherit}",
+			".wterm-tab .x{cursor:pointer;opacity:.6;padding:0 2px;font-size:13px;line-height:13px;font-family:inherit}",
 			".wterm-tab .x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}",
-			".wterm-add{box-sizing:border-box;height:26px;width:26px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;font-size:16px;line-height:24px;flex:none}",
-			".wterm-add:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
-			".wterm-head{align-items:center;gap:10px;display:flex;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}",
-			".wterm-title{font-weight:600;color:var(--dsw-alias-label-primary)}",
-			".wterm-out{box-sizing:border-box;height:200px;overflow:auto;background:var(--dsw-alias-bg-layer-0,#0d0f13);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-primary);flex:none}",
-			".wterm-empty{color:var(--dsw-alias-label-dimmed)}",
-			".wterm-row{align-items:center;gap:8px;display:flex}",
-			".wterm-input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;height:32px;padding:0 10px;font-size:13px;font-family:inherit;flex:1;min-width:0}",
-			".wterm-input:focus{border-color:var(--dsw-alias-brand-primary);outline:none}",
-			".wterm-btn{box-sizing:border-box;height:32px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:12px;line-height:18px;font-family:inherit;flex:none}",
-			".wterm-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}",
-			".wterm-btn.primary{border:none;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-foreground)}",
-			".wterm-btn.danger{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}",
-			".wterm-btn:disabled{opacity:.5;cursor:default}",
-			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-dimmed);font-family:inherit}",
-			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:30px;padding:0 4px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
-			".wterm-bar:hover{color:var(--dsw-alias-label-primary)}"
+			".wterm-add{box-sizing:border-box;height:24px;width:24px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;font-size:15px;line-height:22px;flex:none}",
+			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:#0d0f13;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:#d4d7e0;flex:none;cursor:text}",
+			".wterm-empty{color:#6b7280}",
+			".wterm-line{white-space:pre-wrap;word-break:break-all}",
+			".wterm-cursor{display:inline-block;width:7px;height:14px;background:#d4d7e0;vertical-align:text-bottom;animation:wterm-blink 1s steps(1) infinite}",
+			"@keyframes wterm-blink{50%{opacity:0}}",
+			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:28px;padding:0 4px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
+			".wterm-bar:hover{color:var(--dsw-alias-label-primary)}",
+			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);font-family:inherit;flex:none}"
 		].join("");
 
 		const rpc = async (method, args) => {
@@ -49,8 +42,10 @@ window.__ModuleLoader__.load({
 			return data;
 		};
 
-		// Self-contained bottom-bar panel: one component owns its open state,
-		// tabs, output polling, and controls. No cross-slot shared state.
+		// Terminal-style panel below the input box (conversation.composer.dock):
+		// a REPL — type directly into the terminal, Enter sends, Ctrl+C interrupts.
+		// No separate command box or action buttons; only a tab strip for
+		// multi-terminal management.
 		function TerminalPanel(props) {
 			const el = React.createElement;
 			const sessionId = props.sessionId;
@@ -58,9 +53,10 @@ window.__ModuleLoader__.load({
 			const [terms, setTerms] = React.useState([]);
 			const [activeId, setActiveId] = React.useState(null);
 			const [output, setOutput] = React.useState("");
-			const [input, setInput] = React.useState("");
+			const [line, setLine] = React.useState("");
 			const [busy, setBusy] = React.useState(false);
 			const [error, setError] = React.useState(null);
+			const outRef = React.useRef(null);
 
 			React.useEffect(() => {
 				if (!sessionId || !open) return;
@@ -89,7 +85,7 @@ window.__ModuleLoader__.load({
 				let timer = null;
 				const read = async () => {
 					try {
-						const page = await rpc("read", { sessionId, id: activeId, count: 500 });
+						const page = await rpc("read", { sessionId, id: activeId, count: 800 });
 						if (alive) setOutput(page.text || "");
 					} catch (e) { if (alive) setError(e.message); }
 				};
@@ -98,27 +94,53 @@ window.__ModuleLoader__.load({
 				return () => { alive = false; if (timer) clearInterval(timer); };
 			}, [activeId, sessionId, open]);
 
-			const act = async (fn) => {
-				if (busy) return;
-				setBusy(true); setError(null);
-				try { await fn(); } catch (e) { setError(e.code === "SEND_ACTIVE" ? "该终端正被使用（发送冲突）" : e.message); }
-				finally { setBusy(false); }
-			};
+			// keep scrolled to the newest output line
+			React.useEffect(() => {
+				if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+			}, [output, open]);
+
 			const active = terms.find((t) => t.terminal_id === activeId) || null;
 
-			const doSend = () => {
-				const text = input.trim();
-				if (!text || !active) return;
-				act(async () => { await rpc("send", { sessionId, id: active.terminal_id, text }); setInput(""); });
+			const sendLine = (text) => {
+				const t = text.trim();
+				if (!t || !active) return;
+				if (busy) return;
+				setBusy(true); setError(null);
+				rpc("send", { sessionId, id: active.terminal_id, text: t })
+					.catch((e) => setError(e.code === "SEND_ACTIVE" ? "该终端正被使用（发送冲突）" : e.message))
+					.finally(() => setBusy(false));
 			};
-			const doSignal = (sig) => { if (active) act(() => rpc("signal", { sessionId, id: active.terminal_id, signal: sig })); };
-			const doKill = () => { if (active) act(() => rpc("kill", { sessionId, id: active.terminal_id })); };
-			const doNew = () => act(async () => { const r = await rpc("spawn", { sessionId, name: "新终端", cwd: "/" }); setActiveId(r.terminal_id); });
+			const interrupt = () => {
+				if (!active) return;
+				setError(null);
+				rpc("signal", { sessionId, id: active.terminal_id, signal: "SIGINT" }).catch((e) => setError(e.message));
+			};
+			const doNew = () => {
+				setError(null);
+				rpc("spawn", { sessionId, name: "终端", cwd: "/" })
+					.then((r) => setActiveId(r.terminal_id))
+					.catch((e) => setError(e.message));
+			};
+			const killTab = (id) => {
+				setError(null);
+				rpc("kill", { sessionId, id }).catch((e) => setError(e.message));
+			};
+
+			// capture typing directly in the terminal
+			const handleKey = (e) => {
+				if (e.ctrlKey && (e.key === "c" || e.key === "C")) { e.preventDefault(); interrupt(); return; }
+				if (e.key === "Enter") { e.preventDefault(); sendLine(line); setLine(""); return; }
+				if (e.key === "Backspace") { e.preventDefault(); setLine((l) => l.slice(0, -1)); return; }
+				if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+					e.preventDefault();
+					setLine((l) => l + e.key);
+				}
+			};
 
 			if (!open) {
 				return el("button", {
 					className: "wterm-bar",
-					title: "打开终端面板",
+					title: "打开终端面板（输入框下方）",
 					onClick: () => setOpen(true)
 				},
 					el("span", {}, "▸ 终端"),
@@ -126,14 +148,7 @@ window.__ModuleLoader__.load({
 				);
 			}
 
-			return el("div", { className: "wterm-dock" },
-				el("div", { className: "wterm-head" },
-					el("span", { className: "wterm-title" }, "终端" + (active ? " · " + active.name : "")),
-					el("span", {}, active ? (active.status === "running" ? "运行中" : active.status) + (active.mine ? " · 本会话" : "") : "无终端"),
-					el("span", { style: { flex: 1 } }),
-					el("button", { className: "wterm-btn", onClick: () => setOpen(false) }, "收起"),
-					el("span", { className: "wterm-note" }, "独立终端，与会话无关；命令结束会通知使用它的会话")
-				),
+			return el("div", { className: "wterm", tabIndex: 0, onKeyDown: handleKey, onClick: (e) => { if (e.target === e.currentTarget) e.currentTarget.focus(); } },
 				el("div", { className: "wterm-tabs" },
 					(terms.length === 0 ? [] : terms).map((t) =>
 						el("button", {
@@ -146,29 +161,28 @@ window.__ModuleLoader__.load({
 							t.name + (t.mine ? " ★" : ""),
 							el("span", {
 								className: "x",
-								onClick: (e) => { e.stopPropagation(); act(() => rpc("kill", { sessionId, id: t.terminal_id })); }
+								onClick: (e) => { e.stopPropagation(); killTab(t.terminal_id); }
 							}, "×")
 						)
 					),
-					el("button", { className: "wterm-add", title: "新建终端", onClick: doNew }, "+")
+					el("button", { className: "wterm-add", title: "新建终端", onClick: doNew }, "+"),
+					el("span", { style: { flex: 1 } }),
+					el("button", { className: "wterm-tab", title: "收起", onClick: () => setOpen(false) }, "▾")
 				),
-				el("div", { className: "wterm-out" },
-					output.length > 0 ? output : el("span", { className: "wterm-empty" }, active ? "（无输出。agent 或你在本终端执行命令后显示）" : "（暂无终端，点 + 新建）")
+				el("div", { className: "wterm-out", ref: outRef },
+					output.length > 0
+						? el("span", { className: "wterm-line" }, output)
+						: el("span", { className: "wterm-empty" }, active ? "（无输出。直接在终端里输入命令，Enter 执行）" : "（暂无终端，点 + 新建）"),
+					active ? el("span", { className: "wterm-line" },
+						el("span", { style: { color: "var(--dsw-alias-state-success-primary)" } }, "dsh$ "),
+						line,
+						el("span", { className: "wterm-cursor" }, " ")
+					) : null
 				),
-				el("div", { className: "wterm-row" },
-					el("input", {
-						className: "wterm-input",
-						value: input,
-						placeholder: "输入命令发送到当前终端（Enter 发送，执行结束会通知 agent）",
-						onChange: (e) => setInput(e.target.value),
-						onKeyDown: (e) => { if (e.key === "Enter") doSend(); },
-						disabled: busy || !active
-					}),
-					el("button", { className: "wterm-btn primary", disabled: busy || !active || !input.trim(), onClick: doSend }, "发送"),
-					el("button", { className: "wterm-btn", disabled: busy || !active, onClick: () => doSignal("SIGINT") }, "中断"),
-					el("button", { className: "wterm-btn danger", disabled: busy || !active, onClick: () => doSignal("SIGKILL") }, "强杀")
-				),
-				error ? el("div", { className: "wterm-note", style: { color: "var(--dsw-alias-state-error-primary)" } }, "⚠ " + error) : null
+				el("div", { className: "wterm-note" },
+					"在终端里直接输入，Enter 执行；Ctrl+C 中断；命令结束会通知使用它的会话" + (busy ? "（执行中…）" : ""),
+					error ? el("span", { style: { color: "var(--dsw-alias-state-error-primary)" } }, "　⚠ " + error) : null
+				)
 			);
 		}
 
@@ -180,8 +194,9 @@ window.__ModuleLoader__.load({
 			const slots = ctx.get("slots");
 			if (slots === undefined) return;
 
-			slots.inject("conversation.input.dock", () => slots.register(
-				{ name: "conversation.input.dock", id: "web-terminal", order: 30 },
+			// Below the input box (composer card) — the bottom-most panel seat.
+			slots.inject("conversation.composer.dock", () => slots.register(
+				{ name: "conversation.composer.dock", id: "web-terminal", order: 10 },
 				(props) => React.createElement(TerminalPanel, props)
 			));
 		}
