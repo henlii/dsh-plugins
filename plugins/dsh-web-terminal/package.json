@@ -1,0 +1,28 @@
+{
+  "name": "dsh-web-terminal",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness web plugin: show and operate the agent's persistent PTY shell in the web UI — watch live output, send commands, terminate, and relay every user action back to the agent as a notice.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT"
+}
