@@ -237,6 +237,12 @@ window.__ModuleLoader__.load({
 			if (slots === undefined) return;
 
 			// Below the input box (composer card) — the bottom-most panel seat.
+			// 先用同 id "stats" 替换掉官方统计行（那个夹在分隔线中间的标识块），
+			// 让终端分隔区干净如右侧栏。
+			slots.inject("conversation.composer.dock", () => slots.register(
+				{ name: "conversation.composer.dock", id: "stats", order: 0 },
+				() => null
+			));
 			slots.inject("conversation.composer.dock", () => slots.register(
 				{ name: "conversation.composer.dock", id: "web-terminal", order: 10 },
 				(props) => React.createElement(TerminalPanel, props)
