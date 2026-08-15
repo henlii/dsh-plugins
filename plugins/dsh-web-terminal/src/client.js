@@ -7,26 +7,25 @@ window.__ModuleLoader__.load({
 		const React = require("react");
 
 		const CSS = [
-			".wterm{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px;flex-direction:column;gap:4px;padding:6px 10px;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}",
-			".wterm:focus{border-color:var(--dsw-alias-brand-primary)}",
-			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none}",
-			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;padding:0 8px;font-size:12px;line-height:22px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px}",
-			".wterm-tab.active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
-			".wterm-tab.mine{outline:1px solid var(--dsw-alias-brand-primary)}",
+			".wterm{box-sizing:border-box;flex-direction:column;gap:4px;padding:6px 0;display:flex;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none;border-top:1px solid var(--dsw-alias-border-l2)}",
+			".wterm-tabs{align-items:center;gap:6px;display:flex;overflow-x:auto;scrollbar-width:thin;flex:none;padding:0 2px}",
+			".wterm-tab{box-sizing:border-box;height:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;padding:0 8px;font-size:12px;line-height:24px;font-family:inherit;flex:none;display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid transparent}",
+			".wterm-tab.active{border-bottom-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}",
+			".wterm-tab.mine{color:var(--dsw-alias-brand-primary)}",
 			".wterm-tab .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}",
 			".wterm-tab .dot.running{background:var(--dsw-alias-state-success-primary)}",
 			".wterm-tab .dot.exited{background:var(--dsw-alias-state-error-primary)}",
 			".wterm-tab .x{cursor:pointer;opacity:.6;padding:0 2px;font-size:13px;line-height:13px;font-family:inherit}",
 			".wterm-tab .x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}",
-			".wterm-add{box-sizing:border-box;height:24px;width:24px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;font-size:15px;line-height:22px;flex:none}",
-			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:#0d0f13;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:#d4d7e0;flex:none;cursor:text}",
+			".wterm-add{box-sizing:border-box;height:24px;min-width:24px;cursor:pointer;border:none;background:transparent;color:var(--dsw-alias-label-secondary);border-radius:0;font-size:15px;line-height:24px;flex:none;padding:0 4px}",
+			".wterm-out{box-sizing:border-box;height:180px;overflow:auto;background:#0d0f13;border:1px solid var(--dsw-alias-border-l2);border-radius:4px;padding:8px 10px;font-size:12px;line-height:18px;white-space:pre-wrap;word-break:break-all;color:#d4d7e0;flex:none;cursor:text;margin:0 2px}",
 			".wterm-empty{color:#6b7280}",
 			".wterm-line{white-space:pre-wrap;word-break:break-all}",
 			".wterm-cursor{display:inline-block;width:7px;height:14px;background:#d4d7e0;vertical-align:text-bottom;animation:wterm-blink 1s steps(1) infinite}",
 			"@keyframes wterm-blink{50%{opacity:0}}",
-			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:28px;padding:0 4px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
+			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:28px;padding:0 2px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
 			".wterm-bar:hover{color:var(--dsw-alias-label-primary)}",
-			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);font-family:inherit;flex:none}"
+			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);font-family:inherit;flex:none;padding:0 2px}"
 		].join("");
 
 		const rpc = async (method, args) => {
