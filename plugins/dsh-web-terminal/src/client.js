@@ -32,19 +32,9 @@ window.__ModuleLoader__.load({
 			".wterm-btn.danger{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}",
 			".wterm-btn:disabled{opacity:.5;cursor:default}",
 			".wterm-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-dimmed);font-family:inherit}",
-			".wterm-toggle{box-sizing:border-box;height:28px;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 10px;font-size:12px;line-height:18px;font-family:inherit}",
-			".wterm-toggle:hover{background:var(--dsw-alias-interactive-bg-hover)}",
-			".wterm-toggle.on{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}"
+			".wterm-bar{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:30px;padding:0 4px;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:12px;font-family:inherit;background:transparent;border:none;width:100%;text-align:left}",
+			".wterm-bar:hover{color:var(--dsw-alias-label-primary)}"
 		].join("");
-
-		let panelOpen = false;
-		const listeners = new Set();
-		function setPanelOpen(v) { if (panelOpen === v) return; panelOpen = v; listeners.forEach((l) => l()); }
-		function usePanelOpen() {
-			const [open, setOpen] = React.useState(panelOpen);
-			React.useEffect(() => { listeners.add(setOpen); return () => listeners.delete(setOpen); }, []);
-			return open;
-		}
 
 		const rpc = async (method, args) => {
 			const res = await fetch(`/api/dsh-web-terminal/${method}`, {
@@ -59,9 +49,12 @@ window.__ModuleLoader__.load({
 			return data;
 		};
 
+		// Self-contained bottom-bar panel: one component owns its open state,
+		// tabs, output polling, and controls. No cross-slot shared state.
 		function TerminalPanel(props) {
 			const el = React.createElement;
 			const sessionId = props.sessionId;
+			const [open, setOpen] = React.useState(false);
 			const [terms, setTerms] = React.useState([]);
 			const [activeId, setActiveId] = React.useState(null);
 			const [output, setOutput] = React.useState("");
@@ -70,7 +63,7 @@ window.__ModuleLoader__.load({
 			const [error, setError] = React.useState(null);
 
 			React.useEffect(() => {
-				if (!sessionId) return;
+				if (!sessionId || !open) return;
 				let alive = true;
 				let timer = null;
 				const tick = async () => {
@@ -88,10 +81,10 @@ window.__ModuleLoader__.load({
 				tick();
 				timer = setInterval(tick, 1000);
 				return () => { alive = false; if (timer) clearInterval(timer); };
-			}, [sessionId]);
+			}, [sessionId, open]);
 
 			React.useEffect(() => {
-				if (!activeId || !sessionId) return;
+				if (!activeId || !sessionId || !open) return;
 				let alive = true;
 				let timer = null;
 				const read = async () => {
@@ -103,7 +96,7 @@ window.__ModuleLoader__.load({
 				read();
 				timer = setInterval(read, 1000);
 				return () => { alive = false; if (timer) clearInterval(timer); };
-			}, [activeId, sessionId]);
+			}, [activeId, sessionId, open]);
 
 			const act = async (fn) => {
 				if (busy) return;
@@ -122,7 +115,25 @@ window.__ModuleLoader__.load({
 			const doKill = () => { if (active) act(() => rpc("kill", { sessionId, id: active.terminal_id })); };
 			const doNew = () => act(async () => { const r = await rpc("spawn", { sessionId, name: "新终端", cwd: "/" }); setActiveId(r.terminal_id); });
 
+			if (!open) {
+				return el("button", {
+					className: "wterm-bar",
+					title: "打开终端面板",
+					onClick: () => setOpen(true)
+				},
+					el("span", {}, "▸ 终端"),
+					el("span", {}, terms.length > 0 ? `（${terms.length} 个终端${terms.some(t => t.mine) ? " · 本会话 ★" : ""}）` : "（无终端）")
+				);
+			}
+
 			return el("div", { className: "wterm-dock" },
+				el("div", { className: "wterm-head" },
+					el("span", { className: "wterm-title" }, "终端" + (active ? " · " + active.name : "")),
+					el("span", {}, active ? (active.status === "running" ? "运行中" : active.status) + (active.mine ? " · 本会话" : "") : "无终端"),
+					el("span", { style: { flex: 1 } }),
+					el("button", { className: "wterm-btn", onClick: () => setOpen(false) }, "收起"),
+					el("span", { className: "wterm-note" }, "独立终端，与会话无关；命令结束会通知使用它的会话")
+				),
 				el("div", { className: "wterm-tabs" },
 					(terms.length === 0 ? [] : terms).map((t) =>
 						el("button", {
@@ -140,12 +151,6 @@ window.__ModuleLoader__.load({
 						)
 					),
 					el("button", { className: "wterm-add", title: "新建终端", onClick: doNew }, "+")
-				),
-				el("div", { className: "wterm-head" },
-					el("span", { className: "wterm-title" }, "终端" + (active ? " · " + active.name : "")),
-					el("span", {}, active ? (active.status === "running" ? "运行中" : active.status) + (active.mine ? " · 本会话" : "") : "无终端"),
-					el("span", { style: { flex: 1 } }),
-					el("span", { className: "wterm-note" }, "独立终端，与会话无关；命令结束会通知使用它的会话")
 				),
 				el("div", { className: "wterm-out" },
 					output.length > 0 ? output : el("span", { className: "wterm-empty" }, active ? "（无输出。agent 或你在本终端执行命令后显示）" : "（暂无终端，点 + 新建）")
@@ -167,16 +172,6 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		function TerminalToggle(props) {
-			const el = React.createElement;
-			const open = usePanelOpen();
-			return el("button", {
-				className: "wterm-toggle" + (open ? " on" : ""),
-				title: "打开/关闭终端面板（底部栏）",
-				onClick: () => setPanelOpen(!open)
-			}, open ? "终端 ▾" : "终端");
-		}
-
 		function apply(ctx) {
 			const style = document.createElement("style");
 			style.textContent = CSS;
@@ -185,18 +180,9 @@ window.__ModuleLoader__.load({
 			const slots = ctx.get("slots");
 			if (slots === undefined) return;
 
-			slots.inject("conversation.session.header.utilities", () => slots.register(
-				{ name: "conversation.session.header.utilities", id: "web-terminal", order: 30 },
-				(props) => React.createElement(TerminalToggle, props)
-			));
-
 			slots.inject("conversation.input.dock", () => slots.register(
 				{ name: "conversation.input.dock", id: "web-terminal", order: 30 },
-				(props) => {
-					const open = usePanelOpen();
-					if (!open) return null;
-					return React.createElement(TerminalPanel, props);
-				}
+				(props) => React.createElement(TerminalPanel, props)
 			));
 		}
 
