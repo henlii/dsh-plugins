@@ -25,6 +25,11 @@ window.__ModuleLoader__.load({
 			const [info, setInfo] = react.useState(null);
 			const [failed, setFailed] = react.useState(false);
 			const [open, setOpen] = react.useState(false);
+			const [cur, setCur] = react.useState("");
+			const [next, setNext] = react.useState("");
+			const [confirm, setConfirm] = react.useState("");
+			const [busy, setBusy] = react.useState(false);
+			const [msg, setMsg] = react.useState(null);
 			react.useEffect(() => {
 				let alive = true;
 				fetch("/api/auth/status", { credentials: "same-origin" })
@@ -45,6 +50,32 @@ window.__ModuleLoader__.load({
 			const title = "dsh-web-auth";
 			const description = "内网/LAN 访问密码认证与信任插件";
 			const sourceLabel = info === null || !info.passwordConfigured ? "" : info.passwordSource === "passwordFile" ? "密码文件" : info.passwordSource === "env" ? "环境变量" : "未知";
+
+			const doChangePassword = async () => {
+				setMsg(null);
+				if (next.length < 8) { setMsg({ ok: false, text: "新密码至少 8 位" }); return; }
+				if (next !== confirm) { setMsg({ ok: false, text: "两次输入的新密码不一致" }); return; }
+				setBusy(true);
+				try {
+					const res = await fetch("/api/auth/password", {
+						method: "POST",
+						credentials: "same-origin",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ currentPassword: cur, newPassword: next })
+					});
+					const data = await res.json().catch(() => ({}));
+					if (res.ok && data && data.ok) {
+						setMsg({ ok: true, text: "密码已修改，所有会话已下线，请重新登录" });
+						setCur(""); setNext(""); setConfirm("");
+						setTimeout(() => { window.location.reload(); }, 1200);
+						return;
+					}
+					setMsg({ ok: false, text: (data && data.error) || "修改失败" });
+				} catch {
+					setMsg({ ok: false, text: "无法连接服务器" });
+				}
+				setBusy(false);
+			};
 
 			return react.createElement("li", { style: { listStyle: "none" } },
 				react.createElement("article", {
@@ -107,7 +138,38 @@ window.__ModuleLoader__.load({
 										react.createElement("span", { style: { color: "#1c2024", fontWeight: 500, marginRight: 8 } }, "会话有效期"),
 										`${String(info.ttlHours)} 小时`)),
 						react.createElement("p", { style: { margin: "10px 0 0", fontSize: 12, color: "#8a94a3", lineHeight: 1.6 } },
-							"修改密码：写入 /root/.config/dsh/web-auth.password（优先于环境变量，即时生效，无需重启）；或编辑 /root/.config/dsh/dsh-web.sh 中的 DSH_WEB_AUTH_PASSWORD 后重启服务。"))));
+							"修改密码：写入 /root/.config/dsh/web-auth.password（优先于环境变量，即时生效，无需重启）；或编辑 /root/.config/dsh/dsh-web.sh 中的 DSH_WEB_AUTH_PASSWORD 后重启服务。"),
+						react.createElement("div", { style: { marginTop: 14, borderTop: "1px solid #e4e8ee", paddingTop: 12 } },
+							react.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: "#1c2024", marginBottom: 8 } }, "在页面修改密码"),
+							react.createElement("input", {
+								type: "password",
+								placeholder: "当前密码",
+								value: cur,
+								onChange: (e) => setCur(e.target.value),
+								style: { width: "100%", boxSizing: "border-box", padding: "8px 10px", marginBottom: 8, border: "1px solid #d4d9e0", borderRadius: 6, fontSize: 13, outline: "none" }
+							}),
+							react.createElement("input", {
+								type: "password",
+								placeholder: "新密码（至少 8 位）",
+								value: next,
+								onChange: (e) => setNext(e.target.value),
+								style: { width: "100%", boxSizing: "border-box", padding: "8px 10px", marginBottom: 8, border: "1px solid #d4d9e0", borderRadius: 6, fontSize: 13, outline: "none" }
+							}),
+							react.createElement("input", {
+								type: "password",
+								placeholder: "确认新密码",
+								value: confirm,
+								onChange: (e) => setConfirm(e.target.value),
+								onKeyDown: (e) => { if (e.key === "Enter") void doChangePassword(); },
+								style: { width: "100%", boxSizing: "border-box", padding: "8px 10px", marginBottom: 10, border: "1px solid #d4d9e0", borderRadius: 6, fontSize: 13, outline: "none" }
+							}),
+							msg !== null && react.createElement("p", { style: { margin: "0 0 8px", fontSize: 12, color: msg.ok ? "#1a7f37" : "#c0392b" } }, msg.text),
+							react.createElement("button", {
+								type: "button",
+								disabled: busy,
+								onClick: () => void doChangePassword(),
+								style: { width: "100%", padding: "9px 0", border: 0, borderRadius: 6, background: "#1f6feb", color: "#fff", fontSize: 13, fontWeight: 600, cursor: busy ? "wait" : "pointer" }
+							}, busy ? "保存中…" : "修改密码")))));
 		}
 
 		function apply(ctx) {
