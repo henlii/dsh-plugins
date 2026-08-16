@@ -177,9 +177,8 @@ function apply(ctx, config) {
       spawned = await ctx.terminals.spawn(m, { type: config.shellBackendType, name, cwd });
     } catch (err) {
       if (err && (err.code === 'DUPLICATE_NAME' || /already exists/i.test(String(err && err.message)))) {
-        // A session with this name already exists for the owner — reuse it.
-        const existing = ctx.terminals.list(m).find((s) => s.name === name);
-        if (existing) return existing;
+        // 名字已存在时不复用（避免同工作区不同会话意外共用终端、互收通知），
+        // 新建一个唯一名的终端。
         spawned = await ctx.terminals.spawn(m, {
           type: config.shellBackendType,
           name: `${name}-${Date.now().toString(36)}`,
@@ -286,10 +285,13 @@ function apply(ctx, config) {
         if (mine) termId = mine;
       }
       if (!termId) {
-        // 以工作目录命名（VS Code 每文件夹一终端），避免「会话-session-」这种
-        // 基于 id 前 8 位的名字（会撞 DUPLICATE_NAME）。
-        const name = basename(spec.workdir || '/') || 'terminal';
-        const spawned = await spawnTerminal(caller ? name : name, spec.workdir);
+        // 会话唯一命名：工作目录名 + 会话 id 尾部——同一工作区的不同会话各自
+        // 一个终端，互不共用（状态/通知互不串扰）；撞重名时 spawnTerminal 会新建
+        // 唯一名终端，绝不复用别人的。
+        const base = basename(spec.workdir || '/') || 'terminal';
+        const suffix = caller ? caller.id.replace(/[^a-z0-9]/gi, '').slice(-6) : 'host';
+        const name = `${base}-${suffix}`;
+        const spawned = await spawnTerminal(name, spec.workdir);
         termId = spawned.sessionId;
         if (caller) recordSession(termId, caller.id);
       }
