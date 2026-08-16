@@ -328,6 +328,57 @@ function apply(ctx, config) {
       sendJson(res, 401, { error: "unauthorized" });
       return;
     }
+    if (pathname === "/api/auth/password") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method not allowed" });
+        return;
+      }
+      // Changing the password is privileged: non-loopback callers must hold a
+      // valid session token, and everyone must prove the current password.
+      if (!isLoopbackPeer(req) && !validToken(readCookieValue(req, COOKIE_NAME))) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const src = resolvePassword();
+      if (src.password === null) {
+        sendJson(res, 503, { error: "web-auth: no password configured" });
+        return;
+      }
+      let body = null;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        /* unparseable body is treated as a wrong current password */
+      }
+      const current = body !== null && typeof body === "object" && typeof body.currentPassword === "string" ? body.currentPassword : "";
+      const next = body !== null && typeof body === "object" && typeof body.newPassword === "string" ? body.newPassword : "";
+      if (!safeEqual(current, src.password)) {
+        sendJson(res, 401, { error: "current password is incorrect" });
+        return;
+      }
+      if (next.length < 8) {
+        sendJson(res, 400, { error: "new password must be at least 8 characters" });
+        return;
+      }
+      if (safeEqual(next, src.password)) {
+        sendJson(res, 400, { error: "new password must differ from the current one" });
+        return;
+      }
+      try {
+        // The password file wins over the env-bound password, so writing it
+        // changes the effective password immediately without a restart.
+        writeFileSync(passwordFile, next + "\n", { mode: 0o600 });
+      } catch (error) {
+        sendJson(res, 500, { error: `failed to write password file: ${String(error)}` });
+        return;
+      }
+      // Revoke every issued session token: the old password just died, so
+      // sessions authenticated with it should die too.
+      tokens.clear();
+      persistTokens();
+      sendJson(res, 200, { ok: true, source: "passwordFile" });
+      return;
+    }
     sendJson(res, 404, { error: "not found" });
   };
 
