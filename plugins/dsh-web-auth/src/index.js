@@ -30,6 +30,15 @@ const inject = ["webServer", "timer"];
 const COOKIE_NAME = "dsh_web_auth";
 const AUTH_PREFIX = "/api/auth/";
 const LOOPBACK_PEERS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+// Reverse-proxy gate: when dsh sits behind a TLS-terminating proxy on the
+// same host (Caddy/nginx), the socket peer is always loopback and the real
+// client address is not recoverable (no PROXY protocol in the common case).
+// The proxy instead stamps every forwarded request with a shared-secret
+// header; requests carrying the correct secret are treated as remote (they
+// must authenticate), requests without it are loopback (local ops stay
+// password-free). The secret never crosses the public edge, so remote
+// callers cannot forge it.
+let proxyGate = { header: "x-dsh-proxy", secret: null };
 const DEFAULT_TOKEN_FILE = "/root/.config/dsh/web-auth-tokens.json";
 const DEFAULT_PASSWORD_FILE = "/root/.config/dsh/web-auth.password";
 
@@ -91,6 +100,18 @@ function hostnameOfAuthority(authority) {
 }
 
 function isLoopbackPeer(req) {
+  // A request that carries the proxy gate secret arrived through the public
+  // edge (the TLS proxy stamped it). It is remote even though the socket peer
+  // is loopback, so it must authenticate. Compared as an array: the proxy may
+  // append its value to a client-supplied one, and the gate holds as long as
+  // at least one value matches the secret.
+  if (proxyGate.secret !== null) {
+    const raw = req.headers[proxyGate.header];
+    const values = Array.isArray(raw) ? raw : [raw];
+    if (values.some((v) => typeof v === "string" && v.trim() === proxyGate.secret)) {
+      return false;
+    }
+  }
   const addr = req.socket && req.socket.remoteAddress;
   return typeof addr === "string" && LOOPBACK_PEERS.has(addr);
 }
@@ -164,6 +185,12 @@ function apply(ctx, config) {
   const tokenFile = typeof cfg.tokenFile === "string" && cfg.tokenFile.length > 0 ? cfg.tokenFile : DEFAULT_TOKEN_FILE;
   const ttlMs = (typeof cfg.tokenTtlHours === "number" && cfg.tokenTtlHours > 0 ? cfg.tokenTtlHours : 12) * 3600 * 1000;
   const port = webServer.port || 3080;
+  if (typeof cfg.proxySecret === "string" && cfg.proxySecret.length > 0) {
+    proxyGate = {
+      header: (typeof cfg.proxyHeader === "string" && cfg.proxyHeader.length > 0 ? cfg.proxyHeader : "x-dsh-proxy").toLowerCase(),
+      secret: cfg.proxySecret,
+    };
+  }
 
   // LAN/Tailscale hostnames the client-side connection should treat as
   // loopback: derived from the deployment's own webRuntime.trustedHosts
