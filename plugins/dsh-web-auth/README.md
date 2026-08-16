@@ -53,6 +53,8 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | `tokenTtlHours` | `12` | 会话 token 有效期（小时） |
 | `tokenFile` | `/root/.config/dsh/web-auth-tokens.json` | 已签发 token 持久化文件（服务重启不踢下线） |
 | `lanHosts` | 自动从 `webRuntime.trustedHosts` 派生 | 额外视为回环的 LAN/Tailscale 主机名（客户端 `isLoopback` 补丁用） |
+| `proxySecret` | 空 | 反向代理共享密钥：当 dsh 跑在同机 TLS 代理（Caddy/nginx）后面、socket 对端恒为回环时，代理用此密钥给每个转发请求打头，插件据此判定该请求来自公网（必须认证）。密钥不跨公网边界，远端无法伪造 |
+| `proxyHeader` | `x-dsh-proxy` | proxySecret 使用的请求头名（小写），一般无需修改 |
 
 ## 能力
 
@@ -69,6 +71,7 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 ## 安全边界
 
 - 认证按**真实 TCP 对端地址**判定（`127.0.0.1`/`::1` 免密），Host 头伪造无法绕过；
+- **反向代理场景**（Caddy/nginx 反代到本机 dsh）：socket 对端恒为 `127.0.0.1`，无法用对端地址区分公网与本机。配置 `proxySecret` 后，代理通过 `header_up`（Caddy）或 `proxy_set_header`（nginx）给每个转发请求打上共享密钥头；插件检测到该头即视为远端请求、强制密码认证，未带头则视为本机回环免密。此模式下攻击者即使伪造同名请求头也无法绕过（密钥只存在于代理与 dsh 之间，公网请求必然被代理追加真实值，且判定只看**存在匹配值**，客户端伪造的假值不影响）；
 - 静态资源（HTML/JS/CSS）不设密码门槛（页面本身无数据），`/api` 与 WebSocket 全在密码之后；
 - 密码是部署级秘密（环境变量/0600 文件），不写入 GUI 明文编辑。
 
