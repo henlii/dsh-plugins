@@ -1,0 +1,33 @@
+{
+  "name": "dsh-daily-sticky",
+  "version": "0.2.5",
+  "description": "每日语音便签 DSH web 插件：浮动便签（勾选/编辑/备注/删除/多行批量）+ AI 智能输入（DSH 当前模型抽取 + 模型选择）+ 查漏（你问没答 / 模型在等你 / 刚完成，补录或忽略打 Tag 去重）+ 未完成顺延（昨天/前天/3天前 灰色下标）+ 周/月环比统计。JSON 按日持久化，重启/关机不丢。",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "dsh.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "dsh-daily-sticky",
+  "description": "每日语音便签 DSH web 插件：轻量浮动便签 + 按日 JSON 日志 + 周/月环比统计",
+  "version": "0.2.5",
+  "entry": {
+    "name": "dsh-daily-sticky",
+    "inject": []
+  },
+  "client": {
+    "platform": "web"
+  }
+}
