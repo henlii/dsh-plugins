@@ -21,6 +21,16 @@
 - **统计**：本周/本月 录入数、完成数、完成率 + 周环比 / 月环比（纯本地 JSON 计算，不调 LLM）。
 - **JSON 落盘**：`plan/YYYY-MM-DD.json`（当日便签快照）+ `logs/YYYY-MM-DD.json`（事件日志）+ `gaps.json`（查漏已处理标记），按日持久化，重启/关机不丢。
 
+## 截图
+
+| AI 智能输入（DSH 当前模型抽取） | 今日便签任务列表 |
+|---|---|
+| ![AI 智能输入](docs/ai-extract.png) | ![任务列表](docs/tasks.png) |
+
+| 周/月环统计 | 右下角便签入口 |
+|---|---|
+| ![统计](docs/stats.png) | ![右下角便签](docs/summon.png) |
+
 ## 数据位置
 
 默认数据目录：`~/.dsh/dsh-daily-sticky/`
