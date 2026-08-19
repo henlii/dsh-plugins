@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-quota-monitor",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DSH sidebar footer quota & balance monitor with a Settings section (设置→插件管理): always-on DeepSeek Rage (¥), plus per-provider status rows — OpenCode Go HP/MP/SP (monthly/weekly/5h) and SCNet (国家超算) Credits remaining estimated locally from DSH session logs. Provider selectable (auto/opencode/scnet), meters toggleable.",
   "keywords": [
     "dsh",

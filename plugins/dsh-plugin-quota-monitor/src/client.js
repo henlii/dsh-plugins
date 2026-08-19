@@ -110,7 +110,6 @@ window.__ModuleLoader__.load({
     const clamp = (n) => Math.max(0, Math.min(100, n));
     const fmtMoney = (n) => `¥${Number(n).toFixed(2)}`;
     const fmtNumber = (n) => Number(n || 0).toLocaleString('en-US');
-    const fmtUsd = (n) => `$${Number(n).toFixed(1)}`;
 
     const trackStyle = {
       width: '100%',
@@ -272,18 +271,13 @@ window.__ModuleLoader__.load({
           (rageTitle ? rageTitle + ' · ' : '') +
           (active === 'scnet' && sc ? `${t('card.credits')} 剩 ${fmtNumber(sc.remaining)}` : '') +
           (active === 'opencode' && oc
-            ? `HP ${fmtUsd(remainingUsd(oc.monthly))} · MP ${fmtUsd(remainingUsd(oc.weekly))} · SP ${fmtUsd(remainingUsd(oc.rolling))}`
+            ? `HP ${Math.round(oc.monthly?.remainingPct ?? 0)}% · MP ${Math.round(oc.weekly?.remainingPct ?? 0)}% · SP ${Math.round(oc.rolling?.remainingPct ?? 0)}%`
             : '');
         return jsx('div', {
           style: railStyle,
           title: title || t('card.unavailable'),
           children: text.length > 6 ? text.slice(0, 6) : text,
         });
-      }
-
-      function remainingUsd(w) {
-        if (!w) return 0;
-        return w.limitUsd * (w.remainingPct / 100);
       }
 
       const rows = [];
@@ -309,7 +303,7 @@ window.__ModuleLoader__.load({
             label: t('card.hp'),
             sub: t('card.hp.month'),
             color: C_HP,
-            value: `剩 ${fmtUsd(remainingUsd(oc.monthly))} / ${fmtUsd(oc.monthly.limitUsd)}`,
+            value: `剩 ${Math.round(oc.monthly.remainingPct)}%`,
             ratio: oc.monthly.remainingPct / 100,
           });
         }
@@ -319,7 +313,7 @@ window.__ModuleLoader__.load({
             label: t('card.mp'),
             sub: t('card.mp.week'),
             color: C_MP,
-            value: `剩 ${fmtUsd(remainingUsd(oc.weekly))} / ${fmtUsd(oc.weekly.limitUsd)}`,
+            value: `剩 ${Math.round(oc.weekly.remainingPct)}%`,
             ratio: oc.weekly.remainingPct / 100,
           });
         }
@@ -329,7 +323,7 @@ window.__ModuleLoader__.load({
             label: t('card.sp'),
             sub: t('card.sp.5h'),
             color: C_SP,
-            value: `剩 ${fmtUsd(remainingUsd(oc.rolling))} / ${fmtUsd(oc.rolling.limitUsd)}`,
+            value: `剩 ${Math.round(oc.rolling.remainingPct)}%`,
             ratio: oc.rolling.remainingPct / 100,
           });
         }
