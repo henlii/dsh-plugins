@@ -1,0 +1,26 @@
+{
+  "name": "dsh-plugin-quota-monitor",
+  "version": "0.3.0",
+  "description": "Sidebar footer quota & balance monitor: always-on DeepSeek Rage (¥) + OpenCode Go HP/MP/SP quota windows (monthly/weekly/5h) + SCNet (国家超算) Credits remaining estimated locally from DSH session logs. Provider auto-detect (auto/opencode/scnet), per-meter toggles and editable rate table in Settings → 插件管理.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT"
+}
