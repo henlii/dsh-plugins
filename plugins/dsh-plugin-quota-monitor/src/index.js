@@ -53,6 +53,7 @@ const DEFAULT_CONFIG = {
   opencodeMeters: { rolling: true, weekly: true, monthly: true },
   scnet: {
     planQuota: 60000, // 基础版 60,000 Credits / month
+    resetDay: 1, // billing cycle reset day of each month (1-28); not necessarily the natural month
     rates: {
       'deepseek-v4-flash-0731': { input: 1543, output: 3086, cache: 31 },
       'deepseek-v4-flash': { input: 1200, output: 2400, cache: 24 },
@@ -83,14 +84,28 @@ function today() {
   return `${d.getFullYear()}-${mm}-${dd}`
 }
 
-// Current UTC+8 calendar month boundaries (scnet bills by natural month, UTC+8).
-function monthWindow() {
-  const now = new Date(Date.now() + 8 * 3600 * 1000)
+// Billing cycle boundaries in UTC+8. scnet Token Plan resets on a per-plan
+// day of each month (not necessarily the 1st), so the window runs from the
+// last reset day <= today to the next reset day.
+function cycleWindow(resetDay) {
+  const d = Math.min(28, Math.max(1, Number(resetDay) || 1))
+  const now = new Date(Date.now() + 8 * 3600 * 1000) // UTC+8 wall clock
   const y = now.getUTCFullYear()
   const m = now.getUTCMonth()
-  const start = Date.UTC(y, m, 1) - 8 * 3600 * 1000 // local midnight UTC+8
-  const next = Date.UTC(y, m + 1, 1) - 8 * 3600 * 1000
-  return { start, end: next, label: `${y}-${String(m + 1).padStart(2, '0')}` }
+  const day = now.getUTCDate()
+  // cycle start: this month's reset day if today >= it, else last month's
+  let sy = y
+  let sm = m
+  if (day < d) {
+    const prev = new Date(Date.UTC(y, m - 1, 1))
+    sy = prev.getUTCFullYear()
+    sm = prev.getUTCMonth()
+  }
+  const start = Date.UTC(sy, sm, d) - 8 * 3600 * 1000 // local midnight UTC+8
+  const end = Date.UTC(sy, sm + 1, d) - 8 * 3600 * 1000
+  const n = new Date(Date.UTC(sy, sm + 1, d))
+  const label = `${String(sm + 1).padStart(2, '0')}.${d}–${String(n.getUTCMonth() + 1).padStart(2, '0')}.${d}`
+  return { start, end, label }
 }
 
 // ─── credentials & settings ──────────────────────────────────────────────────
@@ -258,11 +273,13 @@ async function collectSessionFiles() {
 }
 
 /**
- * Estimate Credits consumed through the scnet provider this month by reading
- * DSH session logs. Returns a snapshot or null when nothing usable is found.
+ * Estimate Credits consumed through the scnet provider within the current
+ * billing cycle by reading DSH session logs. Returns a snapshot or null when
+ * nothing usable is found.
  */
 async function estimateScnet(config) {
-  const { start, end, label } = monthWindow()
+  const resetDay = Number(config.scnet?.resetDay) || 1
+  const { start, end, label } = cycleWindow(resetDay)
   const rates = (config.scnet && config.scnet.rates) || {}
   const quota = Number(config.scnet?.planQuota) || DEFAULT_CONFIG.scnet.planQuota
   const files = await collectSessionFiles()

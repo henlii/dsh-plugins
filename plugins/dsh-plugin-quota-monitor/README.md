@@ -48,7 +48,7 @@ dsh plugin --profile web add dsh-plugin-quota-monitor
 
 - **数据源**：自动（跟随默认模型）/ OpenCode Go / 国家超算中心。
 - **OpenCode 显示的条**：月额度（HP）/ 周额度（MP）/ 5h 额度（SP）开关。
-- **国家超算 Credits**：月度额度（默认 60,000，基础版）与模型费率表（每百万 token 的 Credits，JSON 编辑）。
+- **国家超算 Credits**：月度额度（默认 60,000，基础版）、**每月重置日**（Token Plan 按计费周期重置、不一定每月 1 号；填控制台显示的额度重置日 1-28，插件按“上次重置日→今天”统计）与模型费率表（每百万 token 的 Credits，JSON 编辑）。
 - **始终显示 DeepSeek 怒气条**。
 
 配置保存在 `$DSH_HOME/storages/quota-monitor-config.json`。

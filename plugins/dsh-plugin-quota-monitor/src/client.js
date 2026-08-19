@@ -54,6 +54,8 @@ window.__ModuleLoader__.load({
       'settings.opencode.rolling': '5小时额度（SP 耐力）',
       'settings.scnet': '国家超算 Credits',
       'settings.scnet.quota': '月度额度（Credits）',
+      'settings.scnet.resetDay': '每月重置日',
+      'settings.scnet.resetDay.hint': 'Token Plan 按你的计费周期重置（不一定每月 1 号）。填控制台显示的额度重置日（1-28），插件按“上次重置日→今天”统计。',
       'settings.scnet.rates': '模型费率（每百万 token 的 Credits，JSON）',
       'settings.showDeepseek': '始终显示 DeepSeek 怒气条',
       'settings.save': '保存',
@@ -86,6 +88,8 @@ window.__ModuleLoader__.load({
       'settings.opencode.rolling': '5h quota (SP)',
       'settings.scnet': 'SCNet Credits',
       'settings.scnet.quota': 'Monthly quota (Credits)',
+      'settings.scnet.resetDay': 'Monthly reset day',
+      'settings.scnet.resetDay.hint': 'Token Plan resets on your billing cycle (not necessarily the 1st). Enter the reset day (1-28) shown in the console; the plugin counts from the last reset day to today.',
       'settings.scnet.rates': 'Model rates (Credits per M tokens, JSON)',
       'settings.showDeepseek': 'Always show DeepSeek Rage row',
       'settings.save': 'Save',
@@ -397,6 +401,7 @@ window.__ModuleLoader__.load({
       const [mode, setMode] = useState('auto');
       const [opencodeMeters, setOpencodeMeters] = useState({ rolling: true, weekly: true, monthly: true });
       const [quota, setQuota] = useState(60000);
+      const [resetDay, setResetDay] = useState(1);
       const [ratesText, setRatesText] = useState('');
       const [showDeepseek, setShowDeepseek] = useState(true);
       const [detected, setDetected] = useState(null);
@@ -413,6 +418,7 @@ window.__ModuleLoader__.load({
             setMode(config.mode || 'auto');
             setOpencodeMeters(config.opencodeMeters || {});
             setQuota(config.scnet?.planQuota ?? 60000);
+            setResetDay(config.scnet?.resetDay ?? 1);
             setRatesText(JSON.stringify(config.scnet?.rates || {}, null, 2));
             setShowDeepseek(config.showDeepseek !== false);
             setDetected(activeProvider);
@@ -437,6 +443,7 @@ window.__ModuleLoader__.load({
           opencodeMeters,
           scnet: {
             planQuota: Number(quota) || 60000,
+            resetDay: Math.min(28, Math.max(1, Number(resetDay) || 1)),
             rates,
           },
           showDeepseek,
@@ -602,6 +609,21 @@ window.__ModuleLoader__.load({
                   }),
                 ],
               }),
+              jsx('div', {
+                style: rowStyle2,
+                children: [
+                  jsx('span', { style: { flex: 'none', minWidth: 120 }, children: t('settings.scnet.resetDay') }),
+                  jsx('input', {
+                    type: 'number',
+                    min: 1,
+                    max: 28,
+                    value: resetDay,
+                    onChange: (e) => setResetDay(e.target.value),
+                    style: { ...inputStyle, width: 100 },
+                  }),
+                ],
+              }),
+              jsx('div', { style: hintStyle, children: t('settings.scnet.resetDay.hint') }),
               jsx('div', { style: hintStyle, children: t('settings.scnet.rates') }),
               jsx('textarea', {
                 value: ratesText,
