@@ -22,6 +22,7 @@
 |------|------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网/LAN/Tailscale 访问密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置/凭据等特权页在内网可用 | 独立 / 全部 |
 | [dsh-sidebar](plugins/dsh-sidebar/) | 右侧边栏：当前会话工作区文件树 + Git 状态/diff（pidance 式常驻菜单条），点击文件展开二级编辑 | 独立 / 全部 |
+| [dsh-daily-sticky](plugins/dsh-daily-sticky/) *(dsh plugin)* | 每日语音便签：浮动便签（勾选/编辑/删除/批量）+ AI 智能输入（DSH 当前模型抽取）+ 查漏（你问没答 / 模型在等你 / 刚完成，补录或忽略打 Tag 去重）+ 未完成顺延（昨天/前天/3天前）+ 周/月环统计 | 独立（bundle 插件） |
 
 ## 安装
 
