@@ -21,26 +21,87 @@ window.__ModuleLoader__.load({
 		const name = "dsh-web-auth-client";
 		const inject = ["slots"];
 
+		function formatTs(ms) {
+			if (!ms) return "—";
+			try { return new Date(ms).toLocaleString("zh-CN", { hour12: false }); }
+			catch { return String(ms); }
+		}
+
 		function AuthInfoCard() {
 			const [info, setInfo] = react.useState(null);
 			const [failed, setFailed] = react.useState(false);
 			const [open, setOpen] = react.useState(false);
-			react.useEffect(() => {
-				let alive = true;
-				fetch("/api/auth/status", { credentials: "same-origin" })
+			const [sessions, setSessions] = react.useState([]);
+			const [password, setPassword] = react.useState("");
+			const [confirm, setConfirm] = react.useState("");
+			const [actionMsg, setActionMsg] = react.useState(null);
+			const [busy, setBusy] = react.useState(false);
+
+			const loadStatus = react.useCallback(() => {
+				return fetch("/api/auth/status", { credentials: "same-origin" })
 					.then((res) => res.json().catch(() => ({})))
 					.then((data) => {
-						if (!alive) return;
-						if (data && data.ok) setInfo(data);
+						if (data && data.ok) { setInfo(data); setFailed(false); }
 						else setFailed(true);
 					})
-					.catch(() => {
-						if (alive) setFailed(true);
-					});
-				return () => {
-					alive = false;
-				};
+					.catch(() => setFailed(true));
 			}, []);
+
+			const loadSessions = react.useCallback(() => {
+				return fetch("/api/auth/sessions", { credentials: "same-origin" })
+					.then((res) => res.json().catch(() => ({})))
+					.then((data) => {
+						if (data && data.ok && Array.isArray(data.sessions)) setSessions(data.sessions);
+					})
+					.catch(() => {});
+			}, []);
+
+			react.useEffect(() => { void loadStatus(); }, [loadStatus]);
+			react.useEffect(() => {
+				if (!open) return undefined;
+				void loadSessions();
+				const timer = setInterval(() => { void loadSessions(); }, 5000);
+				return () => clearInterval(timer);
+			}, [open, loadSessions]);
+
+			const savePassword = () => {
+				if (busy) return;
+				if (!password) { setActionMsg({ err: true, text: "请输入新密码" }); return; }
+				if (password !== confirm) { setActionMsg({ err: true, text: "两次输入不一致" }); return; }
+				setBusy(true); setActionMsg(null);
+				fetch("/api/auth/password", {
+					method: "POST",
+					credentials: "same-origin",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ password })
+				}).then((res) => res.json().catch(() => ({}))).then((data) => {
+					if (data && data.ok) {
+						setPassword(""); setConfirm("");
+						setActionMsg({ err: false, text: "密码已保存，其它会话已退出" });
+						void loadStatus(); void loadSessions();
+					} else setActionMsg({ err: true, text: (data && data.error) || "保存失败" });
+				}).catch(() => setActionMsg({ err: true, text: "无法连接服务器" }))
+				.finally(() => setBusy(false));
+			};
+
+			const revoke = (id, current) => {
+				if (busy) return;
+				setBusy(true); setActionMsg(null);
+				fetch("/api/auth/sessions/revoke", {
+					method: "POST",
+					credentials: "same-origin",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ id })
+				}).then((res) => res.json().catch(() => ({}))).then((data) => {
+					if (!(data && data.ok && data.revoked)) {
+						setActionMsg({ err: true, text: (data && data.error) || "删除失败" });
+						return;
+					}
+					if (current) { window.location.reload(); return; }
+					void loadSessions();
+				}).catch(() => setActionMsg({ err: true, text: "无法连接服务器" }))
+				.finally(() => setBusy(false));
+			};
 
 			const title = "dsh-web-auth";
 			const description = "内网/LAN 访问密码认证与信任插件";
@@ -96,18 +157,49 @@ window.__ModuleLoader__.load({
 						}
 					},
 						failed
-							? react.createElement("p", { style: { margin: 0, color: "#c0392b" } }, "（需登录后查看状态）")
-							: info === null
-								? react.createElement("p", { style: { margin: 0 } }, "加载中…")
-								: react.createElement(react.Fragment, null,
-									react.createElement("p", { style: { margin: "6px 0 0" } },
-										react.createElement("span", { style: { color: "#1c2024", fontWeight: 500, marginRight: 8 } }, "访问密码"),
-										info.passwordConfigured ? `已配置（来源：${sourceLabel}）` : "未配置"),
-									react.createElement("p", { style: { margin: "6px 0 0" } },
-										react.createElement("span", { style: { color: "#1c2024", fontWeight: 500, marginRight: 8 } }, "会话有效期"),
-										`${String(info.ttlHours)} 小时`)),
-						react.createElement("p", { style: { margin: "10px 0 0", fontSize: 12, color: "#8a94a3", lineHeight: 1.6 } },
-							"修改密码：写入 /root/.config/dsh/web-auth.password（优先于环境变量，即时生效，无需重启）；或编辑 /root/.config/dsh/dsh-web.sh 中的 DSH_WEB_AUTH_PASSWORD 后重启服务。"))));
+						? react.createElement("p", { style: { margin: 0, color: "#c0392b" } }, "（需登录后查看）")
+						: info === null
+							? react.createElement("p", { style: { margin: 0 } }, "加载中…")
+							: react.createElement(react.Fragment, null,
+								react.createElement("p", { style: { margin: "0 0 8px" } },
+									react.createElement("span", { style: { color: "#1c2024", fontWeight: 500, marginRight: 8 } }, "当前密码"),
+									info.passwordConfigured ? `已配置（${sourceLabel}）· 会话 ${String(info.ttlHours)} 小时` : "未配置"),
+								react.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 } },
+									react.createElement("input", {
+										type: "password", placeholder: "新访问密码", value: password,
+										onChange: (e) => setPassword(e.target.value),
+										style: { boxSizing: "border-box", width: "100%", padding: "8px 10px", border: "1px solid #d4d9e0", borderRadius: 8, font: "inherit" }
+									}),
+									react.createElement("input", {
+										type: "password", placeholder: "再输一次", value: confirm,
+										onChange: (e) => setConfirm(e.target.value),
+										onKeyDown: (e) => { if (e.key === "Enter") savePassword(); },
+										style: { boxSizing: "border-box", width: "100%", padding: "8px 10px", border: "1px solid #d4d9e0", borderRadius: 8, font: "inherit" }
+									}),
+									react.createElement("button", {
+										type: "button", disabled: busy, onClick: savePassword,
+										style: { alignSelf: "flex-start", padding: "6px 12px", border: 0, borderRadius: 8, background: "#1f6feb", color: "#fff", font: "inherit", cursor: busy ? "default" : "pointer" }
+									}, busy ? "保存中…" : "保存密码")),
+								react.createElement("div", { style: { color: "#1c2024", fontWeight: 500, margin: "4px 0 6px" } }, `已登录（${String(sessions.length)}）`),
+								sessions.length === 0
+									? react.createElement("p", { style: { margin: 0, color: "#8a94a3" } }, "暂无活动会话（本机回环访问不发 cookie）")
+									: sessions.map((s) => react.createElement("div", {
+										key: s.id,
+										style: { display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid #eef1f5" }
+									},
+										react.createElement("div", { style: { flex: 1, minWidth: 0 } },
+											react.createElement("div", { style: { color: "#1c2024" } },
+												s.peer || "未知地址",
+												s.current ? react.createElement("span", { style: { marginLeft: 6, color: "#2e9e5b", fontSize: 12 } }, "当前") : null),
+											react.createElement("div", { style: { fontSize: 12, color: "#8a94a3", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+												`最近 ${formatTs(s.lastSeen)} · 签发 ${formatTs(s.issuedAt)}`)),
+										react.createElement("button", {
+											type: "button", disabled: busy, onClick: () => revoke(s.id, s.current),
+											style: { flex: "none", padding: "4px 8px", border: "1px solid #e2e6ec", borderRadius: 6, background: "#fff", color: "#c0392b", font: "inherit", cursor: busy ? "default" : "pointer" }
+										}, "删除"))),
+								actionMsg ? react.createElement("p", { style: { margin: "8px 0 0", color: actionMsg.err ? "#c0392b" : "#2e9e5b" } }, actionMsg.text) : null,
+								react.createElement("p", { style: { margin: "10px 0 0", fontSize: 12, color: "#8a94a3", lineHeight: 1.6 } },
+									"保存密码会写入密码文件（优先于环境变量，立即生效），并踢掉其它已登录会话。")))));
 		}
 
 		function apply(ctx) {

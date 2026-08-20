@@ -64,7 +64,7 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | 客户端回环补丁 | 伺服连接客户端时补 `isLoopbackHostname`，让 LAN 页面走 host 设置作用域 |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
-| 设置页卡片 | "插件配置"tab 展开式卡片（order 30，排内置之后），显示密码状态/来源与改密说明 |
+| 设置页卡片 | 改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
 
 ## 安全边界
 

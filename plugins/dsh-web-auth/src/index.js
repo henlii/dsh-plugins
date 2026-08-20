@@ -22,7 +22,8 @@
 //   tokenFile      — issued-token persistence so cookies survive service
 //                    restarts. Default: /root/.config/dsh/web-auth-tokens.json
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 
@@ -94,6 +95,12 @@ function hostnameOfAuthority(authority) {
   return (colon === -1 ? value : value.slice(0, colon)).toLowerCase();
 }
 
+function peerAddress(req) {
+  const addr = req.socket && req.socket.remoteAddress;
+  if (typeof addr !== "string") return "";
+  return addr.startsWith("::ffff:") ? addr.slice(7) : addr;
+}
+
 function isLoopbackPeer(req) {
   const addr = req.socket && req.socket.remoteAddress;
   return typeof addr === "string" && LOOPBACK_PEERS.has(addr);
@@ -158,6 +165,31 @@ function readJsonBody(req, limit = 65536) {
   });
 }
 
+function normalizeTokenRecord(token, value, now) {
+  if (typeof value === "number") {
+    if (value <= now) return null;
+    return {
+      id: token.slice(0, 16),
+      expiry: value,
+      issuedAt: 0,
+      lastSeen: 0,
+      peer: "",
+      userAgent: ""
+    };
+  }
+  if (value === null || typeof value !== "object") return null;
+  const expiry = typeof value.expiry === "number" ? value.expiry : 0;
+  if (expiry <= now) return null;
+  return {
+    id: typeof value.id === "string" && value.id.length > 0 ? value.id : token.slice(0, 16),
+    expiry,
+    issuedAt: typeof value.issuedAt === "number" ? value.issuedAt : 0,
+    lastSeen: typeof value.lastSeen === "number" ? value.lastSeen : 0,
+    peer: typeof value.peer === "string" ? value.peer : "",
+    userAgent: typeof value.userAgent === "string" ? value.userAgent : ""
+  };
+}
+
 function apply(ctx, config) {
   // rc.8 keyed settings.plugin.item only dispatches namespaces the Host serves.
   installSettingsSection(ctx, SETTINGS_NS, SettingsSchema, {}, {
@@ -217,16 +249,18 @@ function apply(ctx, config) {
   };
 
   // Session tokens persisted to disk so cookies survive service restarts.
+  // Value is a record { id, expiry, issuedAt, lastSeen, peer, userAgent }.
+  // Legacy files stored a bare expiry number; those are migrated on load.
   const tokens = new Map();
   try {
     const raw = readFileSync(tokenFile, "utf8");
     const data = JSON.parse(raw);
     const now = Date.now();
     if (data !== null && typeof data === "object") {
-      for (const [token, expiry] of Object.entries(data)) {
-        if (typeof token === "string" && typeof expiry === "number" && expiry > now) {
-          tokens.set(token, expiry);
-        }
+      for (const [token, value] of Object.entries(data)) {
+        if (typeof token !== "string") continue;
+        const rec = normalizeTokenRecord(token, value, now);
+        if (rec !== null) tokens.set(token, rec);
       }
     }
   } catch {
@@ -236,31 +270,43 @@ function apply(ctx, config) {
     try {
       const now = Date.now();
       const obj = {};
-      for (const [token, expiry] of tokens) {
-        if (expiry > now) obj[token] = expiry;
+      for (const [token, rec] of tokens) {
+        if (rec.expiry > now) obj[token] = rec;
       }
+      mkdirSync(dirname(tokenFile), { recursive: true });
       writeFileSync(tokenFile, JSON.stringify(obj), { mode: 0o600 });
     } catch {
       /* best-effort persistence */
     }
   };
-  const issueToken = () => {
+  const issueToken = (req) => {
     const token = randomBytes(32).toString("hex");
-    tokens.set(token, Date.now() + ttlMs);
+    const now = Date.now();
+    tokens.set(token, {
+      id: randomBytes(8).toString("hex"),
+      expiry: now + ttlMs,
+      issuedAt: now,
+      lastSeen: now,
+      peer: peerAddress(req),
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 160)
+    });
     persistTokens();
     return token;
   };
-  const validToken = (token) => {
-    if (typeof token !== "string" || token.length === 0) return false;
-    const expiry = tokens.get(token);
-    if (expiry === void 0) return false;
-    if (Date.now() > expiry) {
+  const tokenRecord = (token) => {
+    if (typeof token !== "string" || token.length === 0) return null;
+    const rec = tokens.get(token);
+    if (rec === void 0) return null;
+    if (Date.now() > rec.expiry) {
       tokens.delete(token);
       persistTokens();
-      return false;
+      return null;
     }
-    return true;
+    rec.lastSeen = Date.now();
+    return rec;
   };
+  const validToken = (token) => tokenRecord(token) !== null;
+  const requireAuthed = (req) => isLoopbackPeer(req) || tokenRecord(readCookieValue(req, COOKIE_NAME)) !== null;
 
   const sendJson = (res, status, body, extraHeaders) => {
     const payload = JSON.stringify(body);
@@ -312,14 +358,94 @@ function apply(ctx, config) {
         sendJson(res, 401, { error: "invalid password" });
         return;
       }
-      const token = issueToken();
+      const token = issueToken(req);
       sendJson(res, 200, { ok: true }, { "set-cookie": cookieHeader(token, Math.floor(ttlMs / 1000)) });
       return;
     }
     if (pathname === "/api/auth/logout") {
+      const cookie = readCookieValue(req, COOKIE_NAME);
+      if (cookie !== null) {
+        tokens.delete(cookie);
+        persistTokens();
+      }
       sendJson(res, 200, { ok: true }, {
         "set-cookie": `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
       });
+      return;
+    }
+    if (pathname === "/api/auth/sessions" && req.method === "GET") {
+      if (!requireAuthed(req)) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const current = tokenRecord(readCookieValue(req, COOKIE_NAME));
+      const now = Date.now();
+      const sessions = [];
+      for (const rec of tokens.values()) {
+        if (rec.expiry <= now) continue;
+        sessions.push({
+          id: rec.id,
+          peer: rec.peer,
+          userAgent: rec.userAgent,
+          issuedAt: rec.issuedAt,
+          lastSeen: rec.lastSeen,
+          expiry: rec.expiry,
+          current: current !== null && rec.id === current.id
+        });
+      }
+      sessions.sort((a, b) => b.lastSeen - a.lastSeen);
+      sendJson(res, 200, { ok: true, sessions });
+      return;
+    }
+    if (pathname === "/api/auth/sessions/revoke" && req.method === "POST") {
+      if (!requireAuthed(req)) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      let body = null;
+      try { body = await readJsonBody(req); } catch { /* empty */ }
+      const id = body !== null && typeof body === "object" && typeof body.id === "string" ? body.id : "";
+      if (id.length === 0) {
+        sendJson(res, 400, { error: "missing id" });
+        return;
+      }
+      let revoked = false;
+      for (const [token, rec] of tokens) {
+        if (rec.id === id) {
+          tokens.delete(token);
+          revoked = true;
+          break;
+        }
+      }
+      if (revoked) persistTokens();
+      sendJson(res, 200, { ok: true, revoked });
+      return;
+    }
+    if (pathname === "/api/auth/password" && req.method === "POST") {
+      if (!requireAuthed(req)) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      let body = null;
+      try { body = await readJsonBody(req); } catch { /* empty */ }
+      const next = body !== null && typeof body === "object" && typeof body.password === "string" ? body.password.trim() : "";
+      if (next.length === 0) {
+        sendJson(res, 400, { error: "password must not be empty" });
+        return;
+      }
+      try {
+        mkdirSync(dirname(passwordFile), { recursive: true });
+        writeFileSync(passwordFile, `${next}\n`, { mode: 0o600 });
+      } catch (err) {
+        sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      const keep = readCookieValue(req, COOKIE_NAME);
+      for (const token of [...tokens.keys()]) {
+        if (token !== keep) tokens.delete(token);
+      }
+      persistTokens();
+      sendJson(res, 200, { ok: true, passwordSource: "passwordFile" });
       return;
     }
     if (pathname === "/api/auth/status") {
