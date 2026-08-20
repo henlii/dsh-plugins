@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-terminal",
   "version": "0.1.0",
-  "description": "DeepSeek Harness web plugin: show and operate the agent's persistent PTY shell in the web UI — watch live output, send commands, terminate, and relay every user action back to the agent as a notice.",
+  "description": "DeepSeek Harness web plugin: user-only PTY terminals in the sidebar. Agent bash stays on the official one-shot ctx.shell.",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -10,8 +10,6 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
