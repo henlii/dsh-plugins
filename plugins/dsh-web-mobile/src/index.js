@@ -5,8 +5,13 @@
 // rewrite it. Critical CSS runs before the client half so a 390px first paint
 // does not flash the 56px rail + 44px sidebar rail.
 
+import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import z from "@deepseek-ai/schemastery";
+
 const name = "dsh-web-mobile";
 const inject = ["webServer"];
+const SETTINGS_NS = settingsNamespace("dsh-web-mobile");
+const SettingsSchema = z.object({});
 
 const CRITICAL_CSS = `<style data-dsh-mobile-critical>@media (max-width:639.98px){[class$="frame"]{grid-template-columns:0 minmax(0,1fr) 0 !important}[class$="handle"]{display:none !important}[class$="centerCol"]{padding-right:0 !important}nav[aria-label="dsh-sidebar 导航"]{display:none !important}}</style>`;
 
@@ -33,6 +38,10 @@ function injectMobileHead(html) {
 }
 
 function apply(ctx) {
+  installSettingsSection(ctx, SETTINGS_NS, SettingsSchema, {}, {
+    setSource() {},
+    onChange() {}
+  });
   const webServer = ctx.get("webServer");
   ctx.effect(() => webServer.tapIndex(injectMobileHead), "dsh-web-mobile: viewport-fit + critical css");
 }

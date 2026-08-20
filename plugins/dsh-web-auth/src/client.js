@@ -211,7 +211,7 @@ window.__ModuleLoader__.load({
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
 				slots.inject("settings.plugin.item", () => slots.register(
-					{ name: "settings.plugin.item", id: "dsh-web-auth", order: 30, label: "dsh-web-auth" },
+					{ name: "settings.plugin.item", key: "dsh-web-auth" },
 					() => react.createElement(AuthInfoCard)
 				));
 			}

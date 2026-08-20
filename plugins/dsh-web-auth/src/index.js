@@ -23,9 +23,13 @@
 //                    restarts. Default: /root/.config/dsh/web-auth-tokens.json
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import z from "@deepseek-ai/schemastery";
 
 const name = "dsh-web-auth";
 const inject = ["webServer", "timer"];
+const SETTINGS_NS = settingsNamespace("dsh-web-auth");
+const SettingsSchema = z.object({});
 
 const COOKIE_NAME = "dsh_web_auth";
 const AUTH_PREFIX = "/api/auth/";
@@ -155,6 +159,12 @@ function readJsonBody(req, limit = 65536) {
 }
 
 function apply(ctx, config) {
+  // rc.8 keyed settings.plugin.item only dispatches namespaces the Host serves.
+  installSettingsSection(ctx, SETTINGS_NS, SettingsSchema, {}, {
+    setSource() {},
+    onChange() {}
+  });
+
   const webServer = ctx.get("webServer");
   if (webServer === void 0) return;
 

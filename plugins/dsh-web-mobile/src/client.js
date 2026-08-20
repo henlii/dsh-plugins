@@ -381,7 +381,7 @@ window.__ModuleLoader__.load({
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
 				slots.inject("settings.plugin.item", () => slots.register(
-					{ name: "settings.plugin.item", id: "dsh-web-mobile", order: 40, label: "dsh-web-mobile" },
+					{ name: "settings.plugin.item", key: "dsh-web-mobile" },
 					() => react.createElement(MobileInfoCard)
 				));
 			}
