@@ -125,6 +125,18 @@ async function readCredential(envName, yamlName) {
 const readDeepSeekKey = () => readCredential('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY')
 const readOpencodeKey = () => readCredential('OPENCODE_GO_API_KEY', 'OPENCODE_GO_API_KEY')
 
+/**
+ * Map a provider id (possibly namespaced, e.g. vision-toolkit-opencode-go) to
+ * our known data sources. Lenient by substring so variant/namespaced provider
+ * ids still resolve to the right bars.
+ */
+function mapProvider(id) {
+  const v = String(id).toLowerCase()
+  if (v.includes('scnet')) return 'scnet'
+  if (v.includes('opencode')) return 'opencode'
+  return null
+}
+
 /** Resolve the DSH default provider from settings.yaml (agent-default-model). */
 async function detectDefaultProvider() {
   try {
@@ -132,8 +144,8 @@ async function detectDefaultProvider() {
     const m = yaml.match(/agent-default-model:\s*\n\s*provider:\s*(\S+)/)
     if (m) {
       const p = m[1].trim()
-      if (p === 'scnet') return 'scnet'
-      if (p === 'opencode-go') return 'opencode'
+      const mapped = mapProvider(p)
+      if (mapped) return mapped
     }
   } catch {
     // fall through
