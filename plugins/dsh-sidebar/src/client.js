@@ -104,6 +104,7 @@ window.__ModuleLoader__.load({
 					try {
 						const snap = await wtRpc("snapshot", { sessionId });
 						if (!alive) return;
+						setError(null);
 						setTerms(snap.terminals || []);
 						setActiveId((cur) => {
 							if (cur && (snap.terminals || []).some((t) => t.terminal_id === cur)) return cur;
@@ -124,8 +125,13 @@ window.__ModuleLoader__.load({
 				const read = async () => {
 					try {
 						const page = await wtRpc("read", { sessionId, id: activeId, count: 600 });
-						if (alive) setOutput(page.text || "");
-					} catch (e) { if (alive) setError(e.message); }
+						if (alive) { setError(null); setOutput(page.text || ""); }
+					} catch (e) {
+						if (!alive) return;
+						const msg = e && e.message ? String(e.message) : "";
+						if (/no such terminal|unknown PTY session/i.test(msg)) { setError(null); return; }
+						setError(msg);
+					}
 				};
 				read();
 				timer = setInterval(read, 1500);
@@ -143,6 +149,7 @@ window.__ModuleLoader__.load({
 				if (!t || !active || busy) return;
 				setBusy(true); setError(null);
 				wtRpc("send", { sessionId, id: active.terminal_id, text: t })
+					.then((r) => { if (r && r.terminal_id) setActiveId(r.terminal_id); })
 					.catch((e) => setError(e.message))
 					.finally(() => setBusy(false));
 			};

@@ -109,6 +109,22 @@ function apply(ctx, config) {
     if (changed) persist();
   }
 
+  /** Drop durable rows whose PTY died with the process (ids do not survive restart). */
+  function pruneDead(m) {
+    if (!m) return;
+    let snaps = [];
+    try { snaps = ctx.terminals.list(m); } catch { return; }
+    const live = new Set(snaps.map((s) => s.sessionId));
+    let changed = false;
+    for (const id of Object.keys(terminals)) {
+      if (!live.has(id)) {
+        delete terminals[id];
+        changed = true;
+      }
+    }
+    if (changed) persist();
+  }
+
   function recordSession(termId, sessionId) {
     const t = terminals[termId];
     if (!t || !sessionId) return;
@@ -207,6 +223,7 @@ function apply(ctx, config) {
       { path: '/api/dsh-web-terminal/snapshot', async handler(req, res) {
         const body = await readJson(req);
         const m = manager || await ensureManager().catch(() => null);
+        if (m) pruneDead(m);
         const snaps = m ? ctx.terminals.list(m) : [];
         const byId = new Map(snaps.map((s) => [s.sessionId, s]));
         const all = Object.keys(terminals).map((id) => {
@@ -224,7 +241,14 @@ function apply(ctx, config) {
       { path: '/api/dsh-web-terminal/read', async handler(req, res) {
         const body = await readJson(req);
         const m = await ensureManager();
-        const page = ctx.terminals.read(m, String(body.id), { count: Number.isSafeInteger(body.count) ? body.count : 500 });
+        const id = String(body.id);
+        const live = ctx.terminals.list(m).some((s) => s.sessionId === id);
+        if (!live) {
+          delete terminals[id];
+          persist();
+          return sendJson(res, 404, { ok: false, code: 'NO_SESSION', error: 'no such terminal' });
+        }
+        const page = ctx.terminals.read(m, id, { count: Number.isSafeInteger(body.count) ? body.count : 500 });
         sendJson(res, 200, { ok: true, text: page.text, totalLines: page.totalLines, truncated: page.truncated });
       } },
       { path: '/api/dsh-web-terminal/send', async handler(req, res) {
@@ -251,8 +275,14 @@ function apply(ctx, config) {
       { path: '/api/dsh-web-terminal/kill', async handler(req, res) {
         const body = await readJson(req);
         const m = await ensureManager();
-        const closed = await ctx.terminals.kill(m, String(body.id), 'closed from web terminal');
-        delete terminals[String(body.id)];
+        const id = String(body.id);
+        let closed = false;
+        try {
+          closed = await ctx.terminals.kill(m, id, 'closed from web terminal');
+        } catch (err) {
+          if (!isMissingSessionError(err)) throw err;
+        }
+        delete terminals[id];
         persist();
         sendJson(res, 200, { ok: true, closed });
       } },
