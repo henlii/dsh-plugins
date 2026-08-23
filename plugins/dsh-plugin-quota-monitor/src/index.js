@@ -114,8 +114,23 @@ async function readCredential(envName, yamlName) {
   if (process.env[envName]) return process.env[envName]
   try {
     const yaml = await readFile(join(dshHome(), CREDENTIALS_FILE), 'utf8')
-    const match = yaml.match(new RegExp(`^${yamlName}:\\s*(\\S+)`, 'm'))
-    if (match) return match[1]
+    // DSH 0.1.1 migrated .credentials.yaml to the versioned shape:
+    //   version: 1
+    //   refs:
+    //     NAME: value
+    // Match both that (indented under refs:) and the legacy flat `NAME: value`
+    // with an optional leading indent, then strip any surrounding quotes.
+    const match = yaml.match(new RegExp(`^\\s*${yamlName}:\\s*(.+)`, 'm'))
+    if (match) {
+      let v = match[1].trim()
+      if (
+        (v.startsWith('"') && v.endsWith('"') && v.length >= 2) ||
+        (v.startsWith("'") && v.endsWith("'") && v.length >= 2)
+      ) {
+        v = v.slice(1, -1)
+      }
+      return v
+    }
   } catch {
     // fall through
   }
