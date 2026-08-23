@@ -43,6 +43,8 @@ window.__ModuleLoader__.load({
       'card.unavailable': '数据不可用',
       'card.stale': '数据过期',
       'card.noProvider': '未检测到服务商',
+      'card.opencode': 'OpenCode',
+      'card.loading': '数据加载中…',
       'settings.mode': '数据源',
       'settings.mode.auto': '自动（跟随默认模型）',
       'settings.mode.opencode': 'OpenCode Go',
@@ -77,6 +79,8 @@ window.__ModuleLoader__.load({
       'card.unavailable': 'No data',
       'card.stale': 'Stale data',
       'card.noProvider': 'No provider detected',
+      'card.opencode': 'OpenCode',
+      'card.loading': 'Loading…',
       'settings.mode': 'Data source',
       'settings.mode.auto': 'Auto (follow default model)',
       'settings.mode.opencode': 'OpenCode Go',
@@ -206,11 +210,11 @@ window.__ModuleLoader__.load({
     // ── RPC api shared by card + settings ─────────────────────────────────────
     function makeApi(connection) {
       return {
-        configGet: () => connection.rpc.call('/balance', 'configGet', {}),
-        configSet: (config) => connection.rpc.call('/balance', 'configSet', { config }),
-        snapshot: () => connection.rpc.call('/balance', 'snapshot', {}),
-        opencode: () => connection.rpc.call('/balance', 'opencode', {}),
-        scnet: () => connection.rpc.call('/balance', 'scnet', {}),
+        configGet: (signal) => connection.rpc.call('/balance', 'configGet', {}, signal),
+        configSet: (config, signal) => connection.rpc.call('/balance', 'configSet', { config }, signal),
+        snapshot: (signal) => connection.rpc.call('/balance', 'snapshot', {}, signal),
+        opencode: (signal) => connection.rpc.call('/balance', 'opencode', {}, signal),
+        scnet: (signal) => connection.rpc.call('/balance', 'scnet', {}, signal),
       };
     }
 
@@ -221,22 +225,31 @@ window.__ModuleLoader__.load({
       const [oc, setOc] = useState(null);
       const [sc, setSc] = useState(null);
 
-      const tick = useCallback(async () => {
-        try {
-          const [c, b, o, s] = await Promise.all([
-            api.configGet(),
-            api.snapshot(),
-            api.opencode(),
-            api.scnet(),
-          ]);
-          if (c && c.ok && c.value) setCfg(c.value);
-          if (b && b.ok && b.value) setBal(b.value);
-          if (o && o.ok && o.value) setOc(o.value);
-          if (s && s.ok && s.value) setSc(s.value);
-        } catch {
-          // keep the last known numbers
-        }
+      /**
+       * Fetch one endpoint independently: races the RPC call against a
+       * timeout (AbortSignal) so a slow/hanging source (e.g. opencode.ai)
+       * can never block the others. Resolves to the value or null.
+       */
+      const fetchOne = useCallback((method) => {
+        const ac = new AbortController();
+        const timer = window.setTimeout(() => ac.abort(), 12000);
+        return Promise.race([
+          api[method](ac.signal),
+          new Promise((r) => window.setTimeout(() => r({ timeout: true }), 13000)),
+        ])
+          .then((res) => (res && res.ok && res.value ? res.value : null))
+          .catch(() => null)
+          .finally(() => window.clearTimeout(timer));
       }, [api]);
+
+      const tick = useCallback(() => {
+        // Each source updates independently; no Promise.all that can stall
+        // the whole card on one slow fetch.
+        fetchOne('configGet').then((v) => v && setCfg(v));
+        fetchOne('snapshot').then((v) => v && setBal(v));
+        fetchOne('opencode').then((v) => v && setOc(v));
+        fetchOne('scnet').then((v) => v && setSc(v));
+      }, [fetchOne]);
 
       useEffect(() => {
         tick();
@@ -295,47 +308,69 @@ window.__ModuleLoader__.load({
       }
 
       // Active provider rows.
-      if (active === 'opencode' && oc) {
-        const meters = config.opencodeMeters || {};
-        if (meters.monthly !== false && oc.monthly) {
+      if (active === 'opencode') {
+        if (oc) {
+          const meters = config.opencodeMeters || {};
+          if (meters.monthly !== false && oc.monthly) {
+            rows.push({
+              key: 'hp',
+              label: t('card.hp'),
+              sub: t('card.hp.month'),
+              color: C_HP,
+              value: `剩 ${Math.round(oc.monthly.remainingPct)}%`,
+              ratio: oc.monthly.remainingPct / 100,
+            });
+          }
+          if (meters.weekly !== false && oc.weekly) {
+            rows.push({
+              key: 'mp',
+              label: t('card.mp'),
+              sub: t('card.mp.week'),
+              color: C_MP,
+              value: `剩 ${Math.round(oc.weekly.remainingPct)}%`,
+              ratio: oc.weekly.remainingPct / 100,
+            });
+          }
+          if (meters.rolling !== false && oc.rolling) {
+            rows.push({
+              key: 'sp',
+              label: t('card.sp'),
+              sub: t('card.sp.5h'),
+              color: C_SP,
+              value: `剩 ${Math.round(oc.rolling.remainingPct)}%`,
+              ratio: oc.rolling.remainingPct / 100,
+            });
+          }
+        } else {
           rows.push({
-            key: 'hp',
-            label: t('card.hp'),
-            sub: t('card.hp.month'),
-            color: C_HP,
-            value: `剩 ${Math.round(oc.monthly.remainingPct)}%`,
-            ratio: oc.monthly.remainingPct / 100,
+            key: 'opencode-loading',
+            label: t('card.opencode'),
+            sub: '',
+            color: 'var(--dsw-alias-label-tertiary)',
+            value: t('card.loading'),
+            ratio: null,
           });
         }
-        if (meters.weekly !== false && oc.weekly) {
+      } else if (active === 'scnet') {
+        if (sc) {
           rows.push({
-            key: 'mp',
-            label: t('card.mp'),
-            sub: t('card.mp.week'),
-            color: C_MP,
-            value: `剩 ${Math.round(oc.weekly.remainingPct)}%`,
-            ratio: oc.weekly.remainingPct / 100,
+            key: 'credits',
+            label: t('card.credits'),
+            sub: sc.month,
+            color: C_CREDITS,
+            value: `剩 ${fmtNumber(sc.remaining)}`,
+            ratio: sc.remainingPct / 100,
+          });
+        } else {
+          rows.push({
+            key: 'scnet-loading',
+            label: t('card.credits'),
+            sub: '',
+            color: 'var(--dsw-alias-label-tertiary)',
+            value: t('card.loading'),
+            ratio: null,
           });
         }
-        if (meters.rolling !== false && oc.rolling) {
-          rows.push({
-            key: 'sp',
-            label: t('card.sp'),
-            sub: t('card.sp.5h'),
-            color: C_SP,
-            value: `剩 ${Math.round(oc.rolling.remainingPct)}%`,
-            ratio: oc.rolling.remainingPct / 100,
-          });
-        }
-      } else if (active === 'scnet' && sc) {
-        rows.push({
-          key: 'credits',
-          label: t('card.credits'),
-          sub: sc.month,
-          color: C_CREDITS,
-          value: `剩 ${fmtNumber(sc.remaining)}`,
-          ratio: sc.remainingPct / 100,
-        });
       } else if (active === null) {
         rows.push({
           key: 'noprovider',
