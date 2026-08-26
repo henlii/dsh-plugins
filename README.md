@@ -22,6 +22,7 @@
 |------|------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网/LAN/Tailscale 访问密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置/凭据等特权页在内网可用 | 独立 / 全部 |
 | [dsh-sidebar](plugins/dsh-sidebar/) | 右侧边栏：当前会话工作区文件树 + Git 状态/diff（pidance 式常驻菜单条），点击文件展开二级编辑 | 独立 / 全部 |
+| [dsh-plugin-quota-monitor](plugins/dsh-plugin-quota-monitor/) | 侧边栏底部额度/余额监控：DeepSeek 怒气条（实时余额）+ OpenCode Go 月/周/5h 条 + 国家超算 Credits 本地估算（设置页可配数据源与费率表） | 独立 / 全部 |
 
 ## 安装
 

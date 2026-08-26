@@ -20,3 +20,7 @@
     - id: sidebar
       name: 'dsh-sidebar'
       config: {}
+
+    - id: quota-monitor
+      name: 'dsh-plugin-quota-monitor'
+      config: {}
