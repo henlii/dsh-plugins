@@ -31,6 +31,8 @@
   仍是 REPL 不是 xterm 原始模式）；
 - **二级编辑**：点击文件展开编辑视图（textarea + 保存 / Ctrl+S），或 diff 视图
   （增删行着色），返回按钮回列表。
+- **性能**：侧栏收起时不扫盘；文件树与 git status 并行；行 `content-visibility:auto`；
+  终端在后台页暂停轮询。对照 dsh-better-sidebar 的 `contain` 与 dsh-perf 的行虚拟化。
 
 > 注意：注册 `details` 插槽会**替换**官方右侧栏的工具详情面板（方案 A，single 插槽语义）。
 
