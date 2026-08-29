@@ -3,6 +3,11 @@
 // Phone: conversation stays on screen. Left/right header buttons open the
 // official session list and the workspace column as overlays. No bottom tab
 // bar. Sibling plugins are feature-detected from the DOM, never imported.
+// Hidden columns use display:none so streaming chat does not paint them;
+// document MutationObserver / visualViewport / resize are rAF-coalesced.
+// Streaming jank mitigations adapted from @linxin666/dsh-perf: session-list
+// set-gate (projection-only publishes ~1Hz) and content-visibility:auto on
+// off-screen message / session rows.
 window.__ModuleLoader__.load({
 	id: "dsh-web-mobile",
 	factory: (require) => {
@@ -34,15 +39,17 @@ window.__ModuleLoader__.load({
 			"html[data-dsh-mobile] [class$=\"centerCol\"] pre{max-width:100%;overflow-x:auto}",
 			"html[data-dsh-mobile] [class$=\"composerStack\"] [class$=\"card\"]~*{display:none !important}",
 			"html[data-dsh-mobile] button[aria-label=\"收起侧边栏\"],html[data-dsh-mobile] button[aria-label=\"打开侧边栏\"],html[data-dsh-mobile] [class$=\"railFish\"]{display:none !important}",
-			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"sessions\"]) [class$=\"sidebarCol\"]{visibility:hidden;pointer-events:none}",
-			"html[data-dsh-mobile][data-dsh-mobile-pane=\"sessions\"] [class$=\"sidebarCol\"]{position:fixed;inset:0 auto 0 0;width:min(22rem,86vw)!important;height:100dvh;z-index:36;overflow:auto;visibility:visible;pointer-events:auto;box-shadow:8px 0 32px rgba(0,0,0,.2);background:var(--dsw-specific-sidebar-fill,#f6f7f9);padding-top:calc(var(--dshm-safe-t) + var(--dshm-btn));box-sizing:border-box}",
-			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"workspace\"]) [class$=\"detailsCol\"]{visibility:hidden;pointer-events:none}",
-			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] [class$=\"detailsCol\"]{position:fixed;inset:0;width:100vw!important;height:100dvh;z-index:36;overflow:hidden;visibility:visible;pointer-events:auto;background:var(--dsw-specific-sidebar-fill,#f6f7f9);padding-top:calc(var(--dshm-safe-t) + var(--dshm-btn));box-sizing:border-box}",
+			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"sessions\"]) [class$=\"sidebarCol\"]{display:none!important}",
+			"html[data-dsh-mobile][data-dsh-mobile-pane=\"sessions\"] [class$=\"sidebarCol\"]{display:block;position:fixed;inset:0 auto 0 0;width:min(22rem,86vw)!important;height:100dvh;z-index:36;overflow:auto;content-visibility:visible;contain:layout paint;box-shadow:8px 0 32px rgba(0,0,0,.2);background:var(--dsw-specific-sidebar-fill,#f6f7f9);padding-top:calc(var(--dshm-safe-t) + var(--dshm-btn));box-sizing:border-box}",
+			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"workspace\"]) [class$=\"detailsCol\"]{display:none!important}",
+			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] [class$=\"detailsCol\"]{display:block;position:fixed;inset:0;width:100vw!important;height:100dvh;z-index:36;overflow:hidden;content-visibility:visible;contain:layout paint;background:var(--dsw-specific-sidebar-fill,#f6f7f9);padding-top:calc(var(--dshm-safe-t) + var(--dshm-btn));box-sizing:border-box}",
 			"html[data-dsh-mobile]:not([data-dsh-mobile-pane=\"workspace\"]) nav[aria-label=\"dsh-sidebar 导航\"]{display:none !important}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] nav[aria-label=\"dsh-sidebar 导航\"]{display:flex !important;flex-direction:row !important;justify-content:space-around !important;align-items:center !important;top:calc(var(--dshm-safe-t) + var(--dshm-btn)) !important;left:0 !important;right:0 !important;bottom:auto !important;width:100% !important;height:48px !important;padding:0 8px !important;z-index:37 !important;border-left:none !important;border-bottom:1px solid var(--dsw-alias-border-l1,#e2e6ec);box-sizing:border-box !important}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] nav[aria-label=\"dsh-sidebar 导航\"]>div{display:none !important}",
 			"html[data-dsh-mobile][data-dsh-mobile-pane=\"workspace\"] [role=\"complementary\"][aria-label=\"工作区侧边栏\"]{padding-right:0 !important;padding-top:48px}",
 			"html[data-dsh-mobile] .wterm{display:none !important}",
+			"html[data-dsh-mobile] [data-chat-flow-kind=\"assistant-step\"],html[data-dsh-mobile] [data-chat-flow-kind=\"tool-call\"]{content-visibility:auto;contain-intrinsic-size:auto 120px}",
+			"html[data-dsh-mobile] [class$=\"sidebarCol\"] [class*=\"sessionRow\"]{content-visibility:auto;contain-intrinsic-size:auto 32px}",
 			"html[data-dsh-mobile] [class$=\"overlayLayer\"]{z-index:50 !important}",
 			"html[data-dsh-mobile] [class$=\"overlay\"]>[class$=\"panel\"]{flex-direction:column !important;width:100% !important;max-width:100% !important;height:100% !important;max-height:100% !important;border-radius:0 !important;margin:0 !important}",
 			"html[data-dsh-mobile] [class$=\"overlay\"]>[class$=\"panel\"]>[class$=\"nav\"]{width:100% !important;max-width:none !important;flex:none !important;height:auto !important;max-height:36vh;overflow:auto;border-right:none !important}",
@@ -65,6 +72,109 @@ window.__ModuleLoader__.load({
 			".dshm-sidebtn svg{display:block}",
 			"@media (prefers-reduced-motion:reduce){html[data-dsh-mobile] [class$=\"sidebarCol\"],html[data-dsh-mobile] [class$=\"detailsCol\"]{transition:none !important}}"
 		].join("");
+
+		function sameEntryVisible(a, b) {
+			if (a === b) return true;
+			if (a === undefined || b === undefined) return false;
+			const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+			keys.delete("projectionValues");
+			for (const key of keys) if (!Object.is(a[key], b[key])) return false;
+			return true;
+		}
+
+		function sameRecord(a, b) {
+			if (a === b) return true;
+			if (a === undefined || b === undefined) return false;
+			const aKeys = Object.keys(a);
+			const bKeys = Object.keys(b);
+			if (aKeys.length !== bKeys.length) return false;
+			for (const key of aKeys) {
+				if (!(key in b)) return false;
+				if (!Object.is(a[key], b[key])) return false;
+			}
+			return true;
+		}
+
+		function sameVisibleContent(a, b) {
+			if (a === b) return true;
+			if (!Object.is(a.current, b.current) || !Object.is(a.phase, b.phase) || !Object.is(a.currentAddress, b.currentAddress)) return false;
+			const aIds = a.ids ?? [];
+			const bIds = b.ids ?? [];
+			if (aIds.length !== bIds.length) return false;
+			for (let i = 0; i < aIds.length; i += 1) if (aIds[i] !== bIds[i]) return false;
+			const aById = a.byId ?? {};
+			const bById = b.byId ?? {};
+			if (Object.keys(aById).length !== Object.keys(bById).length) return false;
+			for (const key of Object.keys(aById)) if (!sameEntryVisible(aById[key], bById[key])) return false;
+			return sameRecord(a.subagentsByParent, b.subagentsByParent) && sameRecord(a.jobsBySession, b.jobsBySession);
+		}
+
+		function makeListSetGate(options) {
+			const coalesceMs = options.coalesceMs;
+			let pending;
+			let timer;
+			let disposed = false;
+			function flushPending() {
+				if (timer !== undefined) {
+					clearTimeout(timer);
+					timer = undefined;
+				}
+				if (pending === undefined) return;
+				const next = pending;
+				pending = undefined;
+				options.publish(next);
+			}
+			return {
+				set(next) {
+					if (disposed) {
+						options.publish(next);
+						return;
+					}
+					if (!sameVisibleContent(options.getPublished(), next)) {
+						if (timer !== undefined) {
+							clearTimeout(timer);
+							timer = undefined;
+						}
+						pending = undefined;
+						options.publish(next);
+						return;
+					}
+					pending = next;
+					if (timer === undefined) timer = setTimeout(flushPending, coalesceMs);
+				},
+				dispose() {
+					if (disposed) return;
+					disposed = true;
+					flushPending();
+				}
+			};
+		}
+
+		function installListGate(ctx) {
+			let list;
+			try {
+				list = ctx.get("sessions")?.list;
+			} catch {
+				return () => {};
+			}
+			if (!list || typeof list.set !== "function" || typeof list.getSnapshot !== "function") return () => {};
+			if (list.__dshmListGate) return () => {};
+			const originalSet = list.set.bind(list);
+			const gate = makeListSetGate({
+				coalesceMs: 1000,
+				getPublished: () => list.getSnapshot() ?? {},
+				publish: (next) => originalSet(next)
+			});
+			list.set = gate.set;
+			list.__dshmListGate = gate;
+			return () => {
+				gate.dispose();
+				if (list.__dshmListGate === gate) {
+					list.set = originalSet;
+					delete list.__dshmListGate;
+				}
+			};
+		}
 
 		function isPhone() {
 			const width = window.innerWidth;
@@ -213,15 +323,51 @@ window.__ModuleLoader__.load({
 			const html = document.documentElement;
 			let pane = "chat";
 			let extras = detectExtras();
+			let lastKb = -1;
+			const kbSlot = { id: 0 };
+			const modeSlot = { id: 0 };
+			const treeSlot = { id: 0 };
+
+			function rafOnce(slot, fn) {
+				if (slot.id) return;
+				slot.id = requestAnimationFrame(() => {
+					slot.id = 0;
+					fn();
+				});
+			}
+
+			function cancelRafs() {
+				if (kbSlot.id) cancelAnimationFrame(kbSlot.id);
+				if (modeSlot.id) cancelAnimationFrame(modeSlot.id);
+				if (treeSlot.id) cancelAnimationFrame(treeSlot.id);
+				kbSlot.id = modeSlot.id = treeSlot.id = 0;
+			}
+
+			function col(suffix) {
+				return document.querySelector(`[class$="${suffix}"]`);
+			}
+
+			function syncInert() {
+				const side = col("sidebarCol");
+				const details = col("detailsCol");
+				const phone = html.hasAttribute("data-dsh-mobile");
+				if (side) side.inert = !phone || pane !== "sessions";
+				if (details) details.inert = !phone || pane !== "workspace";
+			}
 
 			function syncKeyboard() {
 				const vv = window.visualViewport;
 				if (!vv) {
-					html.style.setProperty("--dshm-kb", "0px");
-					html.removeAttribute("data-dsh-mobile-kb");
+					if (lastKb !== 0) {
+						lastKb = 0;
+						html.style.setProperty("--dshm-kb", "0px");
+						html.removeAttribute("data-dsh-mobile-kb");
+					}
 					return;
 				}
 				const occluded = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+				if (occluded === lastKb) return;
+				lastKb = occluded;
 				html.style.setProperty("--dshm-kb", `${occluded}px`);
 				if (occluded > 80) html.setAttribute("data-dsh-mobile-kb", "");
 				else html.removeAttribute("data-dsh-mobile-kb");
@@ -278,6 +424,7 @@ window.__ModuleLoader__.load({
 					openWorkspaceRail();
 				}
 				paintButtons();
+				syncInert();
 			}
 
 			function enterPhone() {
@@ -289,6 +436,7 @@ window.__ModuleLoader__.load({
 				setDetailsOpen(false);
 				setSidebarExpanded(false);
 				paintButtons();
+				syncInert();
 				syncKeyboard();
 			}
 
@@ -302,7 +450,9 @@ window.__ModuleLoader__.load({
 				html.removeAttribute("data-dsh-mobile-kb");
 				html.removeAttribute("data-dsh-mobile-modal");
 				html.style.removeProperty("--dshm-kb");
+				lastKb = -1;
 				backdrop.hidden = true;
+				syncInert();
 			}
 
 			function syncMode() {
@@ -323,12 +473,20 @@ window.__ModuleLoader__.load({
 			});
 			backdrop.addEventListener("click", () => setPane("chat"));
 
+			// 只在选了会话（或新建会话）后收抽屉。工作区/分组行带 aria-expanded，
+			// 点它是展开列表，收回的话手机上没法再点里面的会话。
 			document.addEventListener("click", (event) => {
 				if (!html.hasAttribute("data-dsh-mobile") || pane !== "sessions") return;
 				const t = event.target;
 				if (!t || !t.closest) return;
 				if (t.closest("button[aria-label*=\"操作\"], button[aria-label*=\"设置\"], .dshm-sidebtn, .dshm-backdrop")) return;
-				if (t.closest("[role=\"treeitem\"]")) setPane("chat");
+				if (t.closest("button[aria-label*=\"新建会话\"]")) {
+					setPane("chat");
+					return;
+				}
+				const item = t.closest("[role=\"treeitem\"]");
+				if (!item || item.hasAttribute("aria-expanded")) return;
+				setPane("chat");
 			}, true);
 
 			function syncModal() {
@@ -359,24 +517,35 @@ window.__ModuleLoader__.load({
 			attachFrameWatch();
 
 			const treeWatch = new MutationObserver(() => {
-				const next = detectExtras();
-				const changed = next.workspace !== extras.workspace;
-				extras = next;
-				if (changed && html.hasAttribute("data-dsh-mobile")) paintButtons();
-				attachFrameWatch();
-				syncModal();
+				rafOnce(treeSlot, () => {
+					if (!extras.workspace) {
+						const next = detectExtras();
+						if (next.workspace !== extras.workspace) {
+							extras = next;
+							if (html.hasAttribute("data-dsh-mobile")) paintButtons();
+						}
+					}
+					attachFrameWatch();
+					syncModal();
+					syncInert();
+				});
 			});
 			treeWatch.observe(document.documentElement, { childList: true, subtree: true });
 
-			window.addEventListener("resize", syncMode);
-			window.matchMedia(TOUCH_MQ).addEventListener("change", syncMode);
+			function onResize() { rafOnce(modeSlot, syncMode); }
+			function onTouchMq() { rafOnce(modeSlot, syncMode); }
+			function onViewport() { rafOnce(kbSlot, syncKeyboard); }
+			const touchMq = window.matchMedia(TOUCH_MQ);
+			window.addEventListener("resize", onResize);
+			touchMq.addEventListener("change", onTouchMq);
 			if (window.visualViewport) {
-				window.visualViewport.addEventListener("resize", syncKeyboard);
-				window.visualViewport.addEventListener("scroll", syncKeyboard);
+				window.visualViewport.addEventListener("resize", onViewport);
+				window.visualViewport.addEventListener("scroll", onViewport);
 			}
 
 			syncMode();
 			syncModal();
+			const uninstallListGate = installListGate(ctx);
 
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
@@ -387,14 +556,17 @@ window.__ModuleLoader__.load({
 			}
 
 			ctx.effect(() => () => {
+				cancelRafs();
+				uninstallListGate();
 				style.remove();
 				root.remove();
 				attrWatch.disconnect();
 				treeWatch.disconnect();
-				window.removeEventListener("resize", syncMode);
+				window.removeEventListener("resize", onResize);
+				touchMq.removeEventListener("change", onTouchMq);
 				if (window.visualViewport) {
-					window.visualViewport.removeEventListener("resize", syncKeyboard);
-					window.visualViewport.removeEventListener("scroll", syncKeyboard);
+					window.visualViewport.removeEventListener("resize", onViewport);
+					window.visualViewport.removeEventListener("scroll", onViewport);
 				}
 				leavePhone();
 			}, "dsh-web-mobile: chrome cleanup");

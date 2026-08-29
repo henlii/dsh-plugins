@@ -13,7 +13,7 @@ const inject = ["webServer"];
 const SETTINGS_NS = settingsNamespace("dsh-web-mobile");
 const SettingsSchema = z.object({});
 
-const CRITICAL_CSS = `<style data-dsh-mobile-critical>@media (max-width:639.98px){[class$="frame"]{grid-template-columns:0 minmax(0,1fr) 0 !important}[class$="handle"]{display:none !important}[class$="centerCol"]{padding-right:0 !important}nav[aria-label="dsh-sidebar 导航"]{display:none !important}}</style>`;
+const CRITICAL_CSS = `<style data-dsh-mobile-critical>@media (max-width:639.98px){[class$="frame"]{grid-template-columns:0 minmax(0,1fr) 0 !important}[class$="handle"]{display:none !important}[class$="centerCol"]{padding-right:0 !important}nav[aria-label="dsh-sidebar 导航"]{display:none !important}[class$="sidebarCol"],[class$="detailsCol"]{content-visibility:hidden}}</style>`;
 
 const META = `<meta data-dsh-mobile-meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" /><meta name="mobile-web-app-capable" content="yes" /><meta name="apple-mobile-web-app-capable" content="yes" /><meta name="apple-mobile-web-app-status-bar-style" content="default" />`;
 

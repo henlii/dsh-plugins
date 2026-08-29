@@ -62,10 +62,14 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 |------|------|
 | 单栏会话 | 强制三栏轨道为 `0 / 1fr / 0`，隐藏列宽拖动手柄 |
 | 顶栏按钮 | 左：会话列表抽屉；右：工作区全屏叠层（再点一次收回） |
+| 会话抽屉 | 点工作区/分组只展开；点会话或「新建会话」才收回 |
 | 工作区叠层 | 探测到 `dsh-sidebar` 时显示右侧按钮；含文件 / Git / 信息 / 终端 |
 | 隐藏统计行 | 输入框下官方 StatsLine 不显示，用量看工作区「信息」 |
 | 登录卡 | 探测到 `#dsh-web-auth-overlay` 时限宽、16px 输入、≥44px 按钮 |
 | 安全区 / 键盘 | `viewport-fit=cover` + `visualViewport` 把输入框顶到键盘上方 |
+| 窄屏停绘 | 未打开的会话列/工作区列 `display:none` + `inert`；首屏 critical CSS `content-visibility:hidden` |
+| 主线程合并 | DOM / 键盘 / resize 经 `requestAnimationFrame` 每帧最多同步一次 |
+| 流式降载 | 参考 dsh-perf：会话列表仅投影变化合并到 ~1Hz；屏外消息行 `content-visibility:auto` |
 | 设置页卡片 | 「插件配置」tab 展开式卡片（order 40），只读说明当前探测到的兄弟插件 |
 
 ## 与其它插件的关系
