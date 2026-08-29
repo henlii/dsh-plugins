@@ -351,8 +351,8 @@ window.__ModuleLoader__.load({
 				const side = col("sidebarCol");
 				const details = col("detailsCol");
 				const phone = html.hasAttribute("data-dsh-mobile");
-				if (side) side.inert = !phone || pane !== "sessions";
-				if (details) details.inert = !phone || pane !== "workspace";
+				if (side) side.inert = phone && pane !== "sessions";
+				if (details) details.inert = phone && pane !== "workspace";
 			}
 
 			function syncKeyboard() {

@@ -19,4 +19,12 @@ if (!client.includes('grid-template-columns:minmax(0,1fr)')) {
   console.error('phone grid: expected a single 1fr track while side columns are display:none')
   process.exit(1)
 }
+if (client.includes('side.inert = !phone ||')) {
+  console.error('inert: !phone || ... is always true on desktop and blocks the session list')
+  process.exit(1)
+}
+if (!client.includes('side.inert = phone && pane !== "sessions"')) {
+  console.error('inert: expected phone-only parking of sidebarCol')
+  process.exit(1)
+}
 console.log('phone grid: ok')
