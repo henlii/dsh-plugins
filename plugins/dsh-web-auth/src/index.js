@@ -24,6 +24,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { gzipSync } from "node:zlib";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import z from "@deepseek-ai/schemastery";
 
@@ -564,10 +565,43 @@ function apply(ctx, config) {
   // populated at our apply time); HMR/upgrade rebuilds are picked up too.
   let pluginsCachedRaw = null;
   let pluginsCachedBody = null;
+  const gzipCache = new Map();
+  const gzipBody = (raw, acceptEncoding, cacheKey) => {
+    if (!/\bgzip\b/.test(String(acceptEncoding || "")) || raw.length < 1024) {
+      return { buf: raw, encoding: null };
+    }
+    let hit = gzipCache.get(cacheKey);
+    if (hit === undefined || hit.len !== raw.length) {
+      const gz = gzipSync(raw);
+      if (gz.length >= raw.length) return { buf: raw, encoding: null };
+      if (gzipCache.size > 64) gzipCache.clear();
+      hit = { len: raw.length, buf: gz };
+      gzipCache.set(cacheKey, hit);
+    }
+    return { buf: hit.buf, encoding: "gzip" };
+  };
+  const sendPluginJs = (res, raw, cacheControl, acceptEncoding, cacheKey) => {
+    const packed = gzipBody(raw, acceptEncoding, cacheKey);
+    const headers = {
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": cacheControl
+    };
+    if (packed.encoding) {
+      headers["content-encoding"] = packed.encoding;
+      headers.vary = "Accept-Encoding";
+    }
+    headers["content-length"] = String(packed.buf.length);
+    res.writeHead(200, headers);
+    res.end(packed.buf);
+  };
   const wrapPluginsHandler = (original) => async (req, res) => {
+    const acceptEncoding = req.headers["accept-encoding"];
     let pathname = "";
+    let rev = "";
     try {
-      pathname = decodeURIComponent(new URL(req.url || "/", "http://x").pathname);
+      const url = new URL(req.url || "/", "http://x");
+      pathname = decodeURIComponent(url.pathname);
+      rev = url.searchParams.get("rev") || "";
     } catch {
       /* fall through to the original handler */
     }
@@ -582,15 +616,41 @@ function apply(ctx, config) {
           body = patchConnectionClient(raw, resolveLanHostnames());
           pluginsCachedRaw = raw;
           pluginsCachedBody = body;
+          gzipCache.delete(expected);
         }
-        res.writeHead(200, {
-          "content-type": "text/javascript; charset=utf-8",
-          "cache-control": "no-store"
-        });
-        res.end(body);
+        sendPluginJs(res, Buffer.from(body), "no-store", acceptEncoding, expected);
         return;
       }
     }
+    const writeHead = res.writeHead.bind(res);
+    const end = res.end.bind(res);
+    let status = 200;
+    let headers = {};
+    res.writeHead = (code, extra) => {
+      status = code;
+      headers = { ...(extra || {}) };
+      return res;
+    };
+    res.end = (chunk, encoding, cb) => {
+      if (typeof encoding === "function") {
+        cb = encoding;
+        encoding = undefined;
+      }
+      if (status !== 200 || chunk === undefined || chunk === null) {
+        writeHead(status, headers);
+        return end(chunk, encoding, cb);
+      }
+      const raw = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+      if (rev) headers["cache-control"] = "public, max-age=31536000, immutable";
+      const packed = gzipBody(raw, acceptEncoding, pathname);
+      if (packed.encoding) {
+        headers["content-encoding"] = packed.encoding;
+        headers.vary = "Accept-Encoding";
+        headers["content-length"] = String(packed.buf.length);
+      }
+      writeHead(status, headers);
+      return end(packed.buf, undefined, cb);
+    };
     return original(req, res);
   };
   const pluginsEntry = webServer.prefixes.get("/plugins");

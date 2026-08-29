@@ -61,6 +61,7 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | 密码登录 | 非回环 `/api` 与 WebSocket 需 `POST /api/auth/login` 下发的 HttpOnly cookie |
 | 特权信任 | 认证后请求改写为回环外观，`settings`/`credentials`/`agentPreset`/模型发现等特权方法内网可用 |
 | 登录浮层 | 纯 DOM 全屏登录卡片（不依赖应用外壳插槽），未登录时必然可见 |
+| 插件包 gzip | 包装 `/plugins`：gzip 客户端 JS；带 `?rev=` 时 `immutable` 缓存。官方默认 `no-cache` 明文约 3.5MB，否则「Loading plugins…」在手机上要数秒 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | 客户端回环补丁 | 伺服连接客户端时补 `isLoopbackHostname`，让 LAN 页面走 host 设置作用域 |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
