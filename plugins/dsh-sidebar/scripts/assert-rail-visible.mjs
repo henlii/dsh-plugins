@@ -24,12 +24,12 @@ if (!client.includes('.dsh-sb-rail{position:fixed')) {
   console.error('sidebar rail: expected a viewport-fixed 44px rail while details is collapsed')
   process.exit(1)
 }
-if (!/useEffect\(\s*\(\)\s*=>\s*\{[^}]*openDetails[\s\S]*?\},\s*\[sessionId\]\)/.test(client)) {
-  console.error('sidebar rail: expected openDetails on session mount so the details column is not left at 0')
+if (/useEffect\(\s*\(\)\s*=>\s*\{[^}]*openDetails[\s\S]*?\},\s*\[sessionId\]\)/.test(client)) {
+  console.error('sidebar rail: details must not auto-open on session mount')
   process.exit(1)
 }
 if (!client.includes('const inject = ["slots", "layout"]')) {
-  console.error('sidebar rail: expected cordis inject of layout so openDetails is wired')
+  console.error('sidebar rail: expected cordis inject of layout so the rail can open details on click')
   process.exit(1)
 }
 console.log('sidebar rail: ok')

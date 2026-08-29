@@ -1283,6 +1283,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 			});
 
 			// 列宽为 0 时组件仍挂着：跟 frame 的 collapsed 标记走，避免隐形面板扫盘。
+			// 不自动 openDetails：轨道常驻，点图标再展开。
 			react.useEffect(() => {
 				const frame = document.querySelector("[class$=\"frame\"]");
 				if (!frame) return;
@@ -1294,15 +1295,6 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				watch.observe(frame, { attributes: true, attributeFilter: ["data-details-collapsed"] });
 				return () => watch.disconnect();
 			}, []);
-
-			// 官方 details 默认 0。挂载和换会话时打开内容面板。
-			// 空白会话官方仍把列宽锁成 0。只依赖 sessionId：手动收起后不在同一会话里再撑开。
-			react.useEffect(() => {
-				setCollapsed(false);
-				if (props.layout !== void 0 && typeof props.layout.openDetails === "function") {
-					try { props.layout.openDetails(); } catch { /* layout 未接线 */ }
-				}
-			}, [sessionId]);
 			const [data, setData] = react.useState(null);
 			const [loading, setLoading] = react.useState(false);
 			const [error, setError] = react.useState(null);
