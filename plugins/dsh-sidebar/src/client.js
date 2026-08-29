@@ -14,7 +14,7 @@ window.__ModuleLoader__.load({
 		var reactDom = require("react-dom");
 
 		const name = "dsh-sidebar-client";
-		const inject = ["slots"];
+		const inject = ["slots", "layout"];
 		const el = react.createElement;
 		const Fragment = react.Fragment;
 
@@ -72,9 +72,9 @@ body[data-ds-dark-theme] [data-dsh-sidebar-root]{
   color-scheme:dark;
 }
 [data-dsh-sidebar-root],[data-dsh-sidebar-root] *,[data-dsh-sidebar-root] *::before,[data-dsh-sidebar-root] *::after{box-sizing:border-box}
-[data-dsh-sidebar-root]{height:100%;position:relative;overflow:hidden;background:var(--dsh-sb-panel);color:var(--dsh-sb-text);font-size:12.5px;line-height:1.4;contain:layout style}
+[data-dsh-sidebar-root]{height:100%;position:relative;overflow:hidden;background:var(--dsh-sb-panel);color:var(--dsh-sb-text);font-size:12.5px;line-height:1.4}
 [data-dsh-sidebar-root] button{font:inherit;color:inherit}
-.dsh-sb-body{height:100%;min-width:0;display:flex;flex-direction:column;overflow:hidden;padding-right:44px;animation:dsh-sb-reveal .18s ease both}
+.dsh-sb-body{height:100%;min-width:0;display:flex;flex-direction:column;overflow:hidden;padding-right:44px;animation:dsh-sb-reveal .18s ease both;contain:layout style}
 .dsh-sb-header{height:44px;flex:none;display:flex;align-items:center;gap:6px;padding:0 7px 0 10px;border-bottom:1px solid var(--dsh-sb-border);background:var(--dsh-sb-panel)}
 .dsh-sb-header-title{min-width:0;flex:1;display:flex;align-items:baseline;gap:8px;overflow:hidden}
 .dsh-sb-header-title>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600;color:var(--dsh-sb-text)}
@@ -1282,8 +1282,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				return !frame || frame.hasAttribute("data-details-collapsed");
 			});
 
-			// 列宽为 0 时组件仍挂着：跟 frame 的 collapsed 标记走，避免隐形面板
-			// 扫盘。手机壳打开工作区叠层会清掉该标记。PC 换会话不再强行展开。
+			// 列宽为 0 时组件仍挂着：跟 frame 的 collapsed 标记走，避免隐形面板扫盘。
 			react.useEffect(() => {
 				const frame = document.querySelector("[class$=\"frame\"]");
 				if (!frame) return;
@@ -1295,6 +1294,15 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				watch.observe(frame, { attributes: true, attributeFilter: ["data-details-collapsed"] });
 				return () => watch.disconnect();
 			}, []);
+
+			// 官方 details 默认 0。挂载和换会话时打开内容面板。
+			// 空白会话官方仍把列宽锁成 0。只依赖 sessionId：手动收起后不在同一会话里再撑开。
+			react.useEffect(() => {
+				setCollapsed(false);
+				if (props.layout !== void 0 && typeof props.layout.openDetails === "function") {
+					try { props.layout.openDetails(); } catch { /* layout 未接线 */ }
+				}
+			}, [sessionId]);
 			const [data, setData] = react.useState(null);
 			const [loading, setLoading] = react.useState(false);
 			const [error, setError] = react.useState(null);
@@ -1771,6 +1779,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 
 		function apply(ctx) {
 			const slots = ctx.get("slots");
+			const layout = ctx.get("layout");
 			if (slots === void 0) return;
 
 			const themeStyle = document.createElement("style");
@@ -1793,7 +1802,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 					name: "details",
 					id: "dsh-sidebar",
 					priority: -1,
-					inject: () => ({ layout: ctx.get("layout") })
+					inject: () => ({ layout })
 				},
 				(props) => el(WorkspacePanel, props)
 			));
