@@ -709,21 +709,17 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 		}
 
 		// ── 文件操作 RPC 与本地配置 ─────────────────────────────────────────
-		const FILE_CONFIG_KEY = "dsh-sidebar.file-config.v1";
+		const FILE_CONFIG_KEY = "dsh-sidebar.file-config.v2";
 		const DEFAULT_FILE_CONFIG = {
 			showHidden: false,
-			maxDepth: 5,
-			maxEntries: 1200,
 			skipDirs: ["node_modules", ".git", ".next", ".venv", "__pycache__", ".cache", "dist", "build", ".turbo", ".output", ".pnpm"]
 		};
 		function loadFileConfig() {
 			try {
-				const raw = JSON.parse(localStorage.getItem(FILE_CONFIG_KEY) || "null");
+				const raw = JSON.parse(localStorage.getItem(FILE_CONFIG_KEY) || localStorage.getItem("dsh-sidebar.file-config.v1") || "null");
 				if (raw === null || typeof raw !== "object") return DEFAULT_FILE_CONFIG;
 				return {
 					showHidden: raw.showHidden === true,
-					maxDepth: Math.min(10, Math.max(1, Math.round(Number(raw.maxDepth) || DEFAULT_FILE_CONFIG.maxDepth))),
-					maxEntries: Math.min(5000, Math.max(10, Math.round(Number(raw.maxEntries) || DEFAULT_FILE_CONFIG.maxEntries))),
 					skipDirs: Array.isArray(raw.skipDirs)
 						? raw.skipDirs.filter((item) => typeof item === "string" && item.length > 0).slice(0, 60)
 						: DEFAULT_FILE_CONFIG.skipDirs
@@ -734,6 +730,28 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 		}
 		function saveFileConfig(config) {
 			try { localStorage.setItem(FILE_CONFIG_KEY, JSON.stringify(config)); } catch { /* 存储不可用时保持会话内配置 */ }
+		}
+		function findDir(nodes, dirPath) {
+			if (!Array.isArray(nodes)) return null;
+			for (const node of nodes) {
+				if (node.type !== "dir") continue;
+				if (node.path === dirPath) return node;
+				const nested = findDir(node.children, dirPath);
+				if (nested) return nested;
+			}
+			return null;
+		}
+		function patchDir(nodes, dirPath, children) {
+			if (!Array.isArray(nodes)) return nodes;
+			if (dirPath === "." || dirPath === "") return children;
+			return nodes.map((node) => {
+				if (node.type !== "dir") return node;
+				if (node.path === dirPath) return { ...node, loaded: true, children };
+				if (dirPath.startsWith(`${node.path}/`)) {
+					return { ...node, children: patchDir(node.children || [], dirPath, children) };
+				}
+				return node;
+			});
 		}
 		async function fileRpc(method, body) {
 			const res = await fetch(`/api/dsh-sidebar/${method}`, {
@@ -876,7 +894,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 			}, children), document.body);
 		}
 
-		function DirectoryPicker({ state, files, cwd, onClose, onSelect }) {
+		function DirectoryPicker({ state, files, cwd, onClose, onSelect, onEnsureDir }) {
 			const [selected, setSelected] = react.useState(cwd || ".");
 			const [openDirs, setOpenDirs] = react.useState(() => new Set());
 			react.useEffect(() => {
@@ -893,12 +911,18 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 						className: "dsh-sb-row",
 						"data-active": active ? "true" : void 0,
 						style: { paddingLeft: 10 + depth * 14 },
-						onClick: () => { setSelected(node.path); if (!open) setOpenDirs((prev) => new Set(prev).add(node.path)); }
+						onClick: () => {
+							setSelected(node.path);
+							if (!open) {
+								setOpenDirs((prev) => new Set(prev).add(node.path));
+								if (typeof onEnsureDir === "function") void onEnsureDir(node.path);
+							}
+						}
 					},
 						el("span", { className: "dsh-sb-chevron", style: { transform: open ? "none" : "rotate(-90deg)" }, "aria-hidden": true }, el(Icon, { kind: "chevron", size: 12 })),
 						el("span", { className: "dsh-sb-row-icon" }, el(FolderGlyph, { open, size: 16 })),
 						el("span", { className: "dsh-sb-row-name" }, node.name)),
-					open ? renderDirs(node.children, depth + 1) : null);
+					open ? renderDirs(node.loaded ? node.children : [], depth + 1) : null);
 			});
 			const title = state.mode === "upload" ? "选择上传目录" : state.mode === "move" ? "移动到…" : "复制到…";
 			const dialog = el("div", { className: "dsh-sb-overlay", role: "presentation", onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); } },
@@ -933,7 +957,8 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 			}, [draftRequest]);
 			const finishDraft = () => setDraft(null);
 			const renderTree = (nodes, depth) => {
-				if (!nodes || nodes.length === 0) return el("div", { className: "dsh-sb-empty", style: { minHeight: 60 } }, "（空目录）");
+				if (!Array.isArray(nodes)) return null;
+				if (nodes.length === 0) return el("div", { className: "dsh-sb-empty", style: { minHeight: 60 } }, "（空目录）");
 				return nodes.map((node) => {
 					const indent = { paddingLeft: 8 + depth * 14 };
 					if (node.type === "dir") {
@@ -994,7 +1019,11 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 								onSubmit: async (name) => { await onCreate(node.path, name, draft.kind); finishDraft(); },
 								onCancel: finishDraft
 							}) : null,
-							open ? renderTree(node.children, depth + 1) : null);
+							open
+								? (node.loaded
+									? renderTree(node.children, depth + 1)
+									: el("div", { className: "dsh-sb-summary", style: { paddingLeft: 8 + (depth + 1) * 14 } }, "加载中…"))
+								: null);
 					}
 					const change = changeMap.get(node.path);
 					const active = selectedPath === node.path || (edit !== null && edit.path === node.path);
@@ -1210,30 +1239,6 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 					el("label", {},
 						el("input", { type: "checkbox", checked: draft.showHidden, onChange: (event) => onChange({ ...draft, showHidden: event.target.checked }) }),
 						"显示隐藏文件"),
-					el("label", {},
-						"最大深度",
-						el("input", {
-							type: "number",
-							min: 1,
-							max: 10,
-							value: draft.maxDepth,
-							onChange: (event) => {
-								const value = Math.min(10, Math.max(1, Math.round(Number(event.target.value) || 1)));
-								onChange({ ...draft, maxDepth: value });
-							}
-						})),
-					el("label", {},
-						"最大条目数",
-						el("input", {
-							type: "number",
-							min: 10,
-							max: 5000,
-							value: draft.maxEntries,
-							onChange: (event) => {
-								const value = Math.min(5000, Math.max(10, Math.round(Number(event.target.value) || 10)));
-								onChange({ ...draft, maxEntries: value });
-							}
-						})),
 					el("label", { style: { gridColumn: "1 / -1", flexDirection: "column", alignItems: "flex-start", gap: 4 } },
 						"忽略目录（逗号分隔）",
 						el("input", {
@@ -1245,7 +1250,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				el("div", { className: "dsh-sb-config-actions" },
 					el("button", { type: "button", className: "dsh-sb-action-btn", "data-kind": "primary", onClick: onSave }, "保存"),
 					el("button", { type: "button", className: "dsh-sb-action-btn", onClick: onCancel }, "取消"),
-					el("span", { className: "dsh-sb-config-hint" }, "配置只影响文件树扫描，保存后立即刷新")));
+					el("span", { className: "dsh-sb-config-hint" }, "配置只影响文件树过滤，保存后立即刷新")));
 		}
 		function UploadFeedback({ busy, error, summary, conflict, onReplace, onSkip, onCancel, onDismiss, onDismissSummary }) {
 			if (!busy && !error && !summary && !conflict) return null;
@@ -1309,6 +1314,8 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 			const [saving, setSaving] = react.useState(false);
 			const [notice, setNotice] = react.useState(null);
 			const [fileConfig, setFileConfig] = react.useState(loadFileConfig);
+			const listingRef = react.useRef(new Set());
+			const filesRef = react.useRef([]);
 			const [configOpen, setConfigOpen] = react.useState(false);
 			const [draftConfig, setDraftConfig] = react.useState(null);
 			const [rootDraft, setRootDraft] = react.useState(null);
@@ -1345,6 +1352,8 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 						setData(null);
 						return;
 					}
+					listingRef.current.clear();
+					filesRef.current = Array.isArray(json.files) ? json.files : [];
 					setData({ ...json, sessionId });
 				} catch {
 					setError("无法连接服务器");
@@ -1447,14 +1456,48 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				}
 			}, [edit, draft, sessionId, load, closeEdit]);
 
-			const toggleDir = (path) => {
+			const ensureDir = react.useCallback(async (dirPath) => {
+				if (!sessionId || !dirPath) return;
+				const existing = findDir(filesRef.current, dirPath);
+				if (existing && existing.loaded) return;
+				const key = `${sessionId}:${dirPath}`;
+				if (listingRef.current.has(key)) return;
+				listingRef.current.add(key);
+				try {
+					const json = await fileRpc("listdir", { sessionId, path: dirPath, options: fileConfig });
+					const children = Array.isArray(json.files) ? json.files : [];
+					setData((current) => {
+						if (!current || !Array.isArray(current.files)) return current;
+						const nextFiles = patchDir(current.files, dirPath, children);
+						filesRef.current = nextFiles;
+						return { ...current, files: nextFiles };
+					});
+				} catch (listError) {
+					setNotice(listError instanceof Error ? listError.message : String(listError));
+				} finally {
+					listingRef.current.delete(key);
+				}
+			}, [sessionId, fileConfig]);
+
+			const toggleDir = (dirPath) => {
 				setOpenDirs((prev) => {
 					const next = new Set(prev);
-					if (next.has(path)) next.delete(path);
-					else next.add(path);
+					if (next.has(dirPath)) next.delete(dirPath);
+					else {
+						next.add(dirPath);
+						void ensureDir(dirPath);
+					}
 					return next;
 				});
 			};
+
+			react.useEffect(() => {
+				if (collapsed || !data || !Array.isArray(data.files)) return;
+				for (const dirPath of openDirs) {
+					const node = findDir(data.files, dirPath);
+					if (node && !node.loaded) void ensureDir(dirPath);
+				}
+			}, [collapsed, data, openDirs, ensureDir]);
 
 			const createEntry = react.useCallback(async (dirPath, name, kind) => {
 				const type = kind === "create-dir" ? "dir" : "file";
@@ -1599,8 +1642,6 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				if (draftConfig === null) return;
 				const next = {
 					showHidden: draftConfig.showHidden === true,
-					maxDepth: Math.min(10, Math.max(1, Math.round(Number(draftConfig.maxDepth) || 5))),
-					maxEntries: Math.min(5000, Math.max(10, Math.round(Number(draftConfig.maxEntries) || 1200))),
 					skipDirs: String(draftConfig.skipDirsText || "").split(/[,，]/).map((item) => item.trim()).filter(Boolean).slice(0, 60)
 				};
 				setFileConfig(next);
@@ -1764,7 +1805,8 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 					files: data ? data.files : [],
 					cwd: picker.initialPath,
 					onClose: () => setPicker(null),
-					onSelect: (directory) => void confirmPicker(directory)
+					onSelect: (directory) => void confirmPicker(directory),
+					onEnsureDir: ensureDir
 				}) : null,
 				rail);
 		}

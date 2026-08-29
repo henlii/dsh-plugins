@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "check": "node --check plugins/*/src/index.js && node --check plugins/*/src/client.js && node plugins/dsh-web-mobile/scripts/assert-phone-grid.mjs && node plugins/dsh-sidebar/scripts/assert-rail-visible.mjs",
+    "check": "node --check plugins/*/src/index.js && node --check plugins/*/src/client.js && node plugins/dsh-web-mobile/scripts/assert-phone-grid.mjs && node plugins/dsh-sidebar/scripts/assert-rail-visible.mjs && node plugins/dsh-sidebar/scripts/assert-lazy-tree.mjs",
     "install:all": "dsh web --patch ./cordis.patch.yml"
   }
 }

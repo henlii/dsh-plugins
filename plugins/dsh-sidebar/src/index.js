@@ -10,6 +10,7 @@
 //
 // Routes (all POST, JSON except noted):
 //   /api/dsh-sidebar/snapshot       {sessionId, options?}            → { cwd, rootName, files, git, session, options }
+//   /api/dsh-sidebar/listdir        {sessionId, path, options?}      → { path, files }
 //   /api/dsh-sidebar/read           {sessionId, path}                → { content, truncated }
 //   /api/dsh-sidebar/write          {sessionId, path, content}       → { ok }
 //   /api/dsh-sidebar/diff           {sessionId, path}                → { diff, untracked, preview? }
@@ -35,11 +36,9 @@ const MAX_READ_BYTES = 512 * 1024;
 const MAX_GIT_BYTES = 768 * 1024;
 const DEFAULT_FILE_OPTIONS = {
   showHidden: false,
-  maxDepth: 5,
-  maxEntries: 1200,
   skipDirs: ["node_modules", ".git", ".next", ".venv", "__pycache__", ".cache", "dist", "build", ".turbo", ".output", ".pnpm"]
 };
-const OPTION_LIMITS = { maxDepth: 10, maxEntries: 5000, skipDirs: 60 };
+const OPTION_LIMITS = { skipDirs: 60 };
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -132,18 +131,14 @@ async function pathExists(target) {
   }
 }
 
-/** 解析并夹紧快照文件树配置。 */
+/** 解析文件树过滤：隐藏文件与忽略目录名。不做数量/深度截断。 */
 function parseFileOptions(input) {
   const source = input !== null && typeof input === "object" ? input : {};
   const skipDirs = Array.isArray(source.skipDirs)
     ? source.skipDirs.filter((item) => typeof item === "string" && item.length > 0 && item.length <= 80).slice(0, OPTION_LIMITS.skipDirs)
     : DEFAULT_FILE_OPTIONS.skipDirs;
-  const maxDepth = Math.min(OPTION_LIMITS.maxDepth, Math.max(1, Math.round(Number(source.maxDepth) || DEFAULT_FILE_OPTIONS.maxDepth)));
-  const maxEntries = Math.min(OPTION_LIMITS.maxEntries, Math.max(10, Math.round(Number(source.maxEntries) || DEFAULT_FILE_OPTIONS.maxEntries)));
   return {
     showHidden: source.showHidden === true,
-    maxDepth,
-    maxEntries,
     skipDirs: [...new Set(skipDirs)]
   };
 }
@@ -212,9 +207,8 @@ function parseGitStatus(text) {
   return { branch, changes };
 }
 
-/** Recursively build a bounded file tree (skips heavy dirs). */
-async function buildTree(fs, target, cwd, depth, state, options) {
-  if (depth > options.maxDepth || state.count >= options.maxEntries) return [];
+/** 只列 target 这一层。目录带 loaded:false，展开后再 listdir。 */
+async function listLevel(fs, target, cwd, options) {
   let entries = [];
   try {
     entries = await fs.listDir(target);
@@ -223,25 +217,17 @@ async function buildTree(fs, target, cwd, depth, state, options) {
   }
   const out = [];
   for (const entry of entries) {
-    if (state.count >= options.maxEntries) break;
     if (entry.type !== "directory" && entry.type !== "file") continue;
     if (!options.showHidden && entry.name.startsWith(".")) continue;
     if (entry.type === "directory" && options.skipDirs.includes(entry.name)) continue;
     const abs = fs.processPath(entry.target);
     const rel = path.relative(cwd, abs);
-    state.count += 1;
     if (entry.type === "directory") {
-      out.push({
-        name: entry.name,
-        type: "dir",
-        path: rel,
-        children: await buildTree(fs, entry.target, cwd, depth + 1, state, options)
-      });
+      out.push({ name: entry.name, type: "dir", path: rel, loaded: false, children: [] });
     } else {
       out.push({ name: entry.name, type: "file", path: rel });
     }
   }
-  // Directories first, then files; each group by natural, case-insensitive name.
   out.sort((a, b) => {
     if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
     return a.name.localeCompare(b.name, void 0, { numeric: true, sensitivity: "base" });
@@ -309,6 +295,7 @@ function apply(ctx) {
 
   const routes = [
     { path: `${API_PREFIX}/snapshot`, handler: snapshot },
+    { path: `${API_PREFIX}/listdir`, handler: listDirectory },
     { path: `${API_PREFIX}/read`, handler: readFile },
     { path: `${API_PREFIX}/write`, handler: writeFile },
     { path: `${API_PREFIX}/diff`, handler: fileDiff },
@@ -363,9 +350,8 @@ function apply(ctx) {
       return;
     }
     const options = parseFileOptions(body !== null ? body.options : void 0);
-    const state = { count: 0 };
     const [files, git, session] = await Promise.all([
-      buildTree(ws.fs, root, ws.cwd, 0, state, options),
+      listLevel(ws.fs, root, ws.cwd, options),
       runGit(subprocess, ws.cwd, ["status", "--porcelain=v1", "-b"]).then((status) => {
         if (!status.ok) return { isGit: false, branch: null, changes: [] };
         const parsed = parseGitStatus(status.stdout);
@@ -375,6 +361,28 @@ function apply(ctx) {
     ]);
     const rootName = path.basename(ws.cwd) || ws.cwd;
     sendJson(res, 200, { ok: true, cwd: ws.cwd, rootName, files, git, session, options });
+  }
+
+  async function listDirectory(ctx, req, res) {
+    const body = await readJsonBody(req).catch(() => null);
+    const ws = await workspace(body);
+    const requestPath = body !== null && typeof body.path === "string" ? body.path : ".";
+    if (ws === null || !isSafeDirectoryPath(requestPath)) {
+      sendJson(res, 400, { ok: false, error: "missing session or path" });
+      return;
+    }
+    let target;
+    try {
+      target = requestPath === "."
+        ? await ws.fs.resolve(ws.cwd, { cwd: ws.cwd })
+        : await ws.fs.resolve(requestPath, { cwd: ws.cwd });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: `cannot resolve ${requestPath}` });
+      return;
+    }
+    const options = parseFileOptions(body !== null ? body.options : void 0);
+    const files = await listLevel(ws.fs, target, ws.cwd, options);
+    sendJson(res, 200, { ok: true, path: requestPath, files });
   }
 
   async function readFile(ctx, req, res) {
