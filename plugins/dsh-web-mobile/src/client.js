@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
 		const CSS = [
 			"html[data-dsh-mobile],html[data-dsh-mobile] body{overflow:hidden;height:100%;overscroll-behavior:none}",
 			"html[data-dsh-mobile]{--dshm-kb:0px;--dshm-safe-b:env(safe-area-inset-bottom,0px);--dshm-safe-t:env(safe-area-inset-top,0px);--dshm-btn:" + BTN + "px}",
-			"html[data-dsh-mobile] [class$=\"frame\"]{grid-template-columns:0 minmax(0,1fr) 0 !important;height:100dvh;height:100svh;box-sizing:border-box;padding-bottom:calc(var(--dshm-safe-b) + var(--dshm-kb))}",
+			"html[data-dsh-mobile] [class$=\"frame\"]{grid-template-columns:minmax(0,1fr) !important;height:100dvh;height:100svh;box-sizing:border-box;padding-bottom:calc(var(--dshm-safe-b) + var(--dshm-kb))}",
 			"html[data-dsh-mobile] [class$=\"handle\"]{display:none !important}",
 			"html[data-dsh-mobile] [class$=\"centerCol\"]{padding-right:0 !important;--dsh-chat-content-width:100%;--dsh-composer-side-clearance:8px;--dsh-composer-dock-inset:4px;min-width:0}",
 			"html[data-dsh-mobile] [class$=\"centerCol\"] textarea,html[data-dsh-mobile] [class$=\"centerCol\"] input{font-size:16px !important}",

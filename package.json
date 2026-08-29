@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "check": "node --check plugins/*/src/index.js && node --check plugins/*/src/client.js",
+    "check": "node --check plugins/*/src/index.js && node --check plugins/*/src/client.js && node plugins/dsh-web-mobile/scripts/assert-phone-grid.mjs",
     "install:all": "dsh web --patch ./cordis.patch.yml"
   }
 }
