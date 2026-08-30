@@ -13,10 +13,9 @@ window.__ModuleLoader__.load({
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
-		var react = require("react");
 
 		const name = "dsh-web-mobile-client";
-		const inject = ["slots"];
+		const inject = [];
 
 		const PHONE_ALWAYS = 640;
 		const PHONE_NEVER = 1024;
@@ -231,61 +230,6 @@ window.__ModuleLoader__.load({
 			if (!String(meta.getAttribute("content") || "").includes("viewport-fit=cover")) {
 				meta.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
 			}
-		}
-
-		function MobileInfoCard() {
-			const [open, setOpen] = react.useState(false);
-			return react.createElement("li", { style: { listStyle: "none" } },
-				react.createElement("article", {
-					style: {
-						border: "1px solid var(--dsw-alias-border-l1, #d4d9e0)",
-						borderRadius: 12,
-						background: "var(--dsw-alias-bg-layer-1, #fff)",
-						color: "var(--dsw-alias-label-primary, #1c2024)",
-						overflow: "hidden"
-					}
-				},
-					react.createElement("button", {
-						type: "button",
-						"aria-label": `${open ? "收起设置" : "展开设置"}: dsh-web-mobile`,
-						"aria-expanded": open,
-						onClick: () => setOpen(!open),
-						style: {
-							width: "100%",
-							display: "flex",
-							alignItems: "center",
-							gap: 12,
-							padding: "14px 16px",
-							border: 0,
-							background: "none",
-							cursor: "pointer",
-							textAlign: "left",
-							font: "inherit",
-							color: "inherit"
-						}
-					},
-						react.createElement("div", { style: { flex: 1, minWidth: 0 } },
-							react.createElement("div", { style: { fontSize: 15, fontWeight: 600 } }, "dsh-web-mobile"),
-							react.createElement("div", { style: { fontSize: 13, color: "var(--dsw-alias-label-secondary, #8a94a3)", marginTop: 2 } }, "手机视口适配（独立安装，按需探测兄弟插件）")),
-						react.createElement("span", {
-							style: {
-								color: "var(--dsw-alias-label-secondary, #8a94a3)",
-								fontSize: 12,
-								transition: "transform .14s",
-								transform: open ? "rotate(180deg)" : "none"
-							}
-						}, "▾")),
-					open && react.createElement("div", {
-						style: {
-							borderTop: "1px solid var(--dsw-alias-border-l1, #e4e8ee)",
-							padding: "12px 16px 14px",
-							fontSize: 13,
-							color: "var(--dsw-alias-label-secondary, #5a6472)",
-							lineHeight: 1.6
-						}
-					},
-						react.createElement("p", { style: { margin: 0 } }, "窄屏默认会话页。顶栏左侧打开会话列表，右侧打开工作区（含文件 / Git / 信息 / 终端）。"),
-						react.createElement("p", { style: { margin: "8px 0 0" } }, "输入框下的官方统计行已隐藏，用量看工作区「信息」。"))));
 		}
 
 		function apply(ctx) {
@@ -546,14 +490,6 @@ window.__ModuleLoader__.load({
 			syncMode();
 			syncModal();
 			const uninstallListGate = installListGate(ctx);
-
-			const slots = ctx.get("slots");
-			if (slots !== void 0) {
-				slots.inject("settings.plugin.item", () => slots.register(
-					{ name: "settings.plugin.item", key: "dsh-web-mobile" },
-					() => react.createElement(MobileInfoCard)
-				));
-			}
 
 			ctx.effect(() => () => {
 				cancelRafs();

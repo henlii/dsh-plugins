@@ -21,8 +21,19 @@
 | 插件 | 功能 | 安装 |
 |------|------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网/LAN/Tailscale 访问密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置/凭据等特权页在内网可用 | 独立 / 全部 |
-| [dsh-sidebar](plugins/dsh-sidebar/) | 右侧边栏：当前会话工作区文件树 + Git 状态/diff（pidance 式常驻菜单条），点击文件展开二级编辑 | 独立 / 全部 |
+| [dsh-sidebar](plugins/dsh-sidebar/) | 右侧边栏：pidance Chamber Native 风格工作区面板（文件树与文件操作 / Git 更改 / 会话信息 / 终端 + 44px 常驻轨道） | 独立 / 全部 |
 | [dsh-web-mobile](plugins/dsh-web-mobile/) | 手机视口：默认会话页，顶栏开关左右侧栏；独立可用，探测到 auth/sidebar 时自动接上 | 独立 / 全部 |
+| [dsh-web-terminal](plugins/dsh-web-terminal/) | 侧栏用户 PTY 终端：多标签 xterm 面板，经 WebSocket 流式收发 | 独立 / 全部 |
+| [dsh-vision-fallback](plugins/dsh-vision-fallback/) | 视觉回退链：主模型不支持图片时自动切换到配置的视觉模型 | 独立 / 全部 |
+| [dsh-auto-update](plugins/dsh-auto-update/) | 一键更新 dsh 运行时：检查 npm 正式版/预览版，后台升级 + 校验后重启 + 一键回退 | 独立 / 全部 |
+
+## 平台兼容
+
+- **Linux / macOS / Windows**：全部插件跨平台（路径经 `node:path` / `homedir` /
+  XDG / `%APPDATA%` 解析，无 `/root` 等硬编码；终端默认目录按平台回退）。
+- **dsh-desktop**（[anywhere-labs/dsh-desktop](https://github.com/anywhere-labs/dsh-desktop)）：
+  插件作为普通 DSH 插件在桌面壳内照常工作；`dsh-auto-update` 检测到内嵌部署时
+  自动禁用命令行升级（由桌面宿主自带更新机制管理）。
 
 ## 安装
 

@@ -75,6 +75,9 @@ body[data-ds-dark-theme] [data-dsh-sidebar-root]{
 [data-dsh-sidebar-root]{height:100%;position:relative;overflow:hidden;background:var(--dsh-sb-panel);color:var(--dsh-sb-text);font-size:12.5px;line-height:1.4}
 [data-dsh-sidebar-root] button{font:inherit;color:inherit}
 .dsh-sb-body{height:100%;min-width:0;display:flex;flex-direction:column;overflow:hidden;padding-right:44px;animation:dsh-sb-reveal .18s ease both;contain:layout style}
+.dsh-sb-split{min-height:0;flex:1;display:flex;overflow:hidden}
+.dsh-sb-split-tree{min-width:0;flex:0 0 46%;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--dsh-sb-border)}
+.dsh-sb-split-editor{min-width:0;flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--dsh-sb-panel)}
 .dsh-sb-header{height:44px;flex:none;display:flex;align-items:center;gap:6px;padding:0 7px 0 10px;border-bottom:1px solid var(--dsh-sb-border);background:var(--dsh-sb-panel)}
 .dsh-sb-header-title{min-width:0;flex:1;display:flex;align-items:baseline;gap:8px;overflow:hidden}
 .dsh-sb-header-title>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:600;color:var(--dsh-sb-text)}
@@ -1701,7 +1704,8 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 
 			const content = () => {
 				if (collapsed) return null;
-				if (edit) {
+				// 非文件 tab 的编辑（如 Git diff）仍整面板替换；文件 tab 走下方双列。
+				if (edit && tab !== "files") {
 					return el(EditorPanel, {
 						edit,
 						draft,
@@ -1723,7 +1727,7 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 				if (!data) return EmptyState({ text: "当前会话没有可显示的工作区" });
 
 				if (tab === "files") {
-					return el(Fragment, null,
+					const tree = el(Fragment, null,
 						PanelHeader({
 							title: data.rootName || "工作区",
 							meta: data.cwd || null,
@@ -1771,6 +1775,25 @@ html[data-dsh-mobile] .dsh-sb-rail-btn,html[data-dsh-mobile] .dsh-sb-row,html[da
 							draftRequest,
 							dirtyPaths: new Set()
 						}));
+					// 文件内容编辑：文件树保持，右侧再展开一块编辑器（双列）。
+					if (edit && edit.mode === "content") {
+						return el("div", { className: "dsh-sb-split" },
+							el("div", { className: "dsh-sb-split-tree" }, tree),
+							el("div", { className: "dsh-sb-split-editor" },
+								el(EditorPanel, {
+									edit,
+									draft,
+									diffText,
+									diffMeta,
+									truncated,
+									saving,
+									editError,
+									onChange: setDraft,
+									onSave: () => void save(),
+									onBack: closeEdit
+								})));
+					}
+					return tree;
 				}
 				if (tab === "git") {
 					return el(Fragment, null,

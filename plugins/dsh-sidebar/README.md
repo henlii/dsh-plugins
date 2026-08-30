@@ -30,8 +30,8 @@
 - **终端**：对齐 pidance TerminalPanel 的状态条 + 同色底 + 底栏 chips
   （依赖 dsh-web-terminal 的宿主 RPC；直接输入、Enter 执行、Ctrl-C 中断，
   仍是 REPL 不是 xterm 原始模式）；
-- **二级编辑**：点击文件展开编辑视图（textarea + 保存 / Ctrl+S），或 diff 视图
-  （增删行着色），返回按钮回列表。
+- **二级编辑**：点击文件在右侧**双列展开**编辑器（文件树保持可见，textarea +
+  保存 / Ctrl+S），或 diff 视图（增删行着色），返回按钮回列表。
 - **性能**：侧栏收起时不扫盘；文件树按层加载、与 git status 并行；行 `content-visibility:auto`；
   终端在后台页暂停轮询。`contain:layout` 只加在内容面板，不加在插槽根上，
   否则 `position:fixed` 的 44px 轨道会被 0 宽 details 列裁掉。

@@ -34,9 +34,9 @@ dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-web-terminal
 
 ## Web 面板（右侧栏）
 
-- 位置：dsh-sidebar「终端」tab。
-- REPL：点击终端直接输入，Enter 执行，Ctrl+C 中断。
-- tab：各终端、`+` 新建、`×` 关闭。
+- 位置：dsh-sidebar「终端」tab，视觉对齐 pidance TerminalPanel。
+- REPL：点击面板直接输入，Enter 执行，底栏 Ctrl-C 中断。
+- chips：各终端、`+` 新建、关闭。
 
 ## 路由（POST JSON，/api 受 web-auth 保护）
 

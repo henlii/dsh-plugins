@@ -1,7 +1,7 @@
 {
-  "name": "@henlii/dsh-web-terminal",
+  "name": "@henlii/dsh-vision-fallback",
   "version": "0.1.0",
-  "description": "DeepSeek Harness web plugin: user-only PTY terminals in the sidebar. Agent bash stays on the official one-shot ctx.shell.",
+  "description": "DSH plugin: when the main model cannot accept images, fall back to a configured vision model for that request. Configure the fallback chain in the plugin settings card.",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -10,13 +10,14 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.8",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-ui-settings"
       ],
       "platform": "web"
     }

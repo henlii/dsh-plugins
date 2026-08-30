@@ -17,27 +17,43 @@
 //                    `passwordFile` on every login attempt, so editing that
 //                    file changes the password live without a restart.
 //   passwordFile   — optional live-editable password file; WINS over `password`
-//                    when present and non-empty. Default: /root/.config/dsh/web-auth.password
+//                    when present and non-empty. Default: <dsh-config>/web-auth.password
 //   tokenTtlHours  — session token lifetime (default 12).
 //   tokenFile      — issued-token persistence so cookies survive service
-//                    restarts. Default: /root/.config/dsh/web-auth-tokens.json
+//                    restarts. Default: <dsh-config>/web-auth-tokens.json
+//   <dsh-config>   — DSH_HOME if set, else %APPDATA%/dsh on Windows, else
+//                    ~/.config/dsh (XDG).
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { homedir } from "node:os";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { gzipSync } from "node:zlib";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
 import z from "@deepseek-ai/schemastery";
 
 const name = "dsh-web-auth";
 const inject = ["webServer", "timer"];
+const SETTINGS_DOCUMENT_ROUTE = "/api/dsh-web-auth/settings-document";
 const SETTINGS_NS = settingsNamespace("dsh-web-auth");
 const SettingsSchema = z.object({});
 
 const COOKIE_NAME = "dsh_web_auth";
 const AUTH_PREFIX = "/api/auth/";
 const LOOPBACK_PEERS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
-const DEFAULT_TOKEN_FILE = "/root/.config/dsh/web-auth-tokens.json";
-const DEFAULT_PASSWORD_FILE = "/root/.config/dsh/web-auth.password";
+
+// 跨平台默认配置目录：dsh 官方约定 DSH_HOME（默认 ~/.dsh），否则按平台惯例：
+// Windows → %APPDATA%/dsh，macOS/Linux → ~/.config/dsh（XDG）。
+function defaultConfigDir() {
+  if (process.env.DSH_HOME && process.env.DSH_HOME.length > 0) return process.env.DSH_HOME;
+  if (process.platform === "win32") {
+    return join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "dsh");
+  }
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "dsh");
+}
+
+const DEFAULT_TOKEN_FILE = join(defaultConfigDir(), "web-auth-tokens.json");
+const DEFAULT_PASSWORD_FILE = join(defaultConfigDir(), "web-auth.password");
 
 // Browser-side UUID polyfill: `crypto.randomUUID` only exists in secure
 // contexts, and a page served over plain HTTP on a LAN/Tailscale IP is not
@@ -665,6 +681,97 @@ function apply(ctx, config) {
   // before the token sweep below so the polyfill survives even if the timer
   // mixin is unavailable.
   ctx.effect(() => webServer.tapIndex(injectUuidPolyfill), "dsh-web-auth: uuid polyfill");
+
+  // Settings-document read for the remote "打开配置文件" replacement action.
+  // The official settings.openDocument RPC hands the path to a NATIVE opener
+  // (xdg-open / open / Invoke-Item), which cannot work on a headless server;
+  // the client half shadows that button and calls this route instead, which
+  // serves the document text (and its path) over the authenticated /api plane.
+  // `canOpenNative` mirrors the official canOpenNativePath() heuristic so the
+  // client can keep using the native RPC on desktop-capable hosts.
+  // The route is registered through the patched webServer.register, so it is
+  // wrapped by authorizeHttp like every other /api route.
+  ctx.effect(() => webServer.register({
+    kind: "exact",
+    path: SETTINGS_DOCUMENT_ROUTE,
+    handler: async (req, res) => {
+      const settings = ctx.get("settings");
+      if (settings === void 0) {
+        sendJson(res, 503, { ok: false, error: "settings service is absent" });
+        return;
+      }
+      let path;
+      try {
+        path = await settings.prepareDocument();
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      if (path === void 0) {
+        sendJson(res, 404, { ok: false, error: "settings provider has no local document" });
+        return;
+      }
+      let content = "";
+      try {
+        content = readFileSync(path, "utf8");
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      const platform = process.platform;
+      const canOpenNative = platform === "darwin" || platform === "win32" ||
+        Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+      sendJson(res, 200, { ok: true, path, content, canOpenNative });
+    },
+  }), "dsh-web-auth: settings-document route");
+
+  // Settings-document write for the remote "打开配置文件" replacement action.
+  // The modal editor saves through this route; the write goes through the same
+  // atomic-write + writer-lock protocol the official settings-file provider
+  // uses, so a concurrent settings commit can never be clobbered silently.
+  ctx.effect(() => webServer.register({
+    kind: "exact",
+    path: `${SETTINGS_DOCUMENT_ROUTE}/write`,
+    handler: async (req, res) => {
+      const settings = ctx.get("settings");
+      if (settings === void 0) {
+        sendJson(res, 503, { ok: false, error: "settings service is absent" });
+        return;
+      }
+      let path;
+      try {
+        path = await settings.prepareDocument();
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      if (path === void 0) {
+        sendJson(res, 404, { ok: false, error: "settings provider has no local document" });
+        return;
+      }
+      let body = null;
+      try {
+        body = await readJsonBody(req, 1048576);
+      } catch {
+        sendJson(res, 400, { ok: false, error: "invalid JSON body" });
+        return;
+      }
+      const content = typeof body.content === "string" ? body.content : null;
+      if (content === null) {
+        sendJson(res, 400, { ok: false, error: "missing content" });
+        return;
+      }
+      try {
+        await withFileLock(path, async () => {
+          await writeFileAtomic(path, content, { mode: 0o600, dirMode: 0o700 });
+        });
+      } catch (err) {
+        sendJson(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      sendJson(res, 200, { ok: true, path });
+    },
+  }), "dsh-web-auth: settings-document write route");
 
   try {
     ctx.interval(() => {

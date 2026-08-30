@@ -66,6 +66,7 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | 客户端回环补丁 | 伺服连接客户端时补 `isLoopbackHostname`，让 LAN 页面走 host 设置作用域 |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
 | 设置页卡片 | 改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
+| 远程打开配置文件 | 替换官方「打开配置文件」按钮：headless 服务器上改为大模态框查看/编辑 `settings.yaml`（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时仍走官方原生打开 |
 
 ## 安全边界
 

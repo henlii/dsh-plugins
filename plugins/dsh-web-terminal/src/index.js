@@ -66,6 +66,9 @@ function apply(ctx, config) {
 
   // ── manager agent (PTY owner; not a coding session) ──────────────────────
   let manager = null;
+  // 跨平台默认终端目录：Windows 无 '/'，回退到用户主目录。
+  const defaultCwd = () => (process.platform === 'win32' ? homedir() : '/');
+
   async function ensureManager() {
     if (manager) return manager;
     const agents = ctx.get('agents');
@@ -75,7 +78,7 @@ function apply(ctx, config) {
     try {
       const handle = await agents.create({
         sessionId: managerId,
-        meta: { cwd: '/', agentPreset: 'minimal' },
+        meta: { cwd: defaultCwd(), agentPreset: 'minimal' },
       });
       manager = handle && handle.agent ? handle.agent : handle;
     } catch (err) {
@@ -150,7 +153,7 @@ function apply(ctx, config) {
       }
     }
     terminals[spawned.sessionId] = {
-      name: name || basename(cwd || '/') || 'terminal',
+      name: name || basename(cwd || defaultCwd()) || 'terminal',
       cwd: cwd || '',
       sessions: [],
     };
@@ -288,7 +291,7 @@ function apply(ctx, config) {
       } },
       { path: '/api/dsh-web-terminal/spawn', async handler(req, res) {
         const body = await readJson(req);
-        const spawned = await spawnTerminal(body.name || 'web', body.cwd || '/');
+        const spawned = await spawnTerminal(body.name || 'web', body.cwd || defaultCwd());
         if (body.sessionId) recordSession(spawned.sessionId, String(body.sessionId));
         sendJson(res, 200, { ok: true, terminal_id: spawned.sessionId, name: terminals[spawned.sessionId].name });
       } },

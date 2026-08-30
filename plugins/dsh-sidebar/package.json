@@ -1,5 +1,5 @@
 {
-  "name": "dsh-sidebar",
+  "name": "@henlii/dsh-sidebar",
   "version": "0.1.0",
   "description": "DSH plugin: pidance Chamber Native style right workspace sidebar with full file operations (create/rename/move/copy/delete/upload), file-tree settings, git changes, session info and terminal.",
   "type": "module",

@@ -1,7 +1,7 @@
 {
-  "name": "@henlii/dsh-web-auth",
+  "name": "@henlii/dsh-auto-update",
   "version": "0.1.0",
-  "description": "DSH plugin: password authentication + trust for dsh web LAN/Tailscale access. Non-loopback /api and WebSocket traffic requires a password login; once authenticated, the privileged settings/credentials plane works over LAN.",
+  "description": "DSH plugin: one-click update for the DeepSeek Harness runtime — check npm latest/next dist-tags, upgrade to the preview build or roll back to the stable one, with a guarded background upgrade (separate process, verify-then-restart, rollback script).",
   "type": "module",
   "main": "src/index.js",
   "exports": {
@@ -10,7 +10,6 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-atomic-write": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.8",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
@@ -25,7 +24,8 @@
     }
   },
   "files": [
-    "src"
+    "src",
+    "scripts"
   ],
   "license": "MIT"
 }

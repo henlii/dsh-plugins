@@ -24,3 +24,11 @@
     - id: web-mobile
       name: 'dsh-web-mobile'
       config: {}
+
+    - id: vision-fallback
+      name: 'dsh-vision-fallback'
+      config: {}
+
+    - id: auto-update
+      name: 'dsh-auto-update'
+      config: {}

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-web-mobile",
+  "name": "@henlii/dsh-web-mobile",
   "version": "0.1.0",
   "description": "DSH plugin: phone-viewport adapter for the official dsh web shell. Single-column chat plus overlay sheets; feature-detects dsh-web-auth / dsh-sidebar / dsh-web-terminal without depending on them.",
   "type": "module",
@@ -9,15 +9,10 @@
     "./client": "./src/client.js",
     "./package.json": "./package.json"
   },
-  "dependencies": {
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "^3.18.1"
-  },
+  "dependencies": {},
   "dsh": {
     "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-settings-plugins"
-      ],
+      "inject": [],
       "platform": "web"
     }
   },
