@@ -1,0 +1,99 @@
+name: Release
+
+# 可信发布（npm Trusted Publishing / OIDC）：
+# push v<plugin>-<version> tag 触发（如 vdsh-web-auth-0.1.0）→ 定位插件目录 →
+# npm pack → 基本审计 → npm publish --provenance（无长期 token）→
+# GitHub Release（同一 tgz + sha256；已存在则跳过）。
+# 本地不执行任何自动 publish；审计失败即中止（fail closed）。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # gh release create
+  id-token: write # npm OIDC provenance（不发 token）
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # tag 形如 vdsh-web-auth-0.1.0：最后一个 '-' 之前是插件名，之后是版本。
+      - name: 解析 tag 定位插件
+        run: |
+          TAG="${{ github.ref_name }}"
+          PLUGIN="${TAG#v}"
+          PLUGIN="${PLUGIN%-*}"
+          VERSION="${TAG##*-}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "PLUGIN=$PLUGIN" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ ! -f "plugins/$PLUGIN/package.json" ]; then
+            echo "插件目录不存在：plugins/$PLUGIN" >&2
+            exit 1
+          fi
+          PKG_NAME=$(node -p "require('./plugins/$PLUGIN/package.json').name")
+          PKG_VERSION=$(node -p "require('./plugins/$PLUGIN/package.json').version")
+          echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
+          echo "PKG_VERSION=$PKG_VERSION" >> "$GITHUB_ENV"
+          if [ "$PKG_VERSION" != "$VERSION" ]; then
+            echo "tag 版本 $VERSION 与 package.json 版本 $PKG_VERSION 不一致" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      - name: 打包（tgz 文件名用 package.json 版本）
+        working-directory: plugins/${{ env.PLUGIN }}
+        run: |
+          npm pack --ignore-scripts
+          ls -la *.tgz
+
+      - name: 生成后审计（解析真实 tgz，fail closed）
+        working-directory: plugins/${{ env.PLUGIN }}
+        run: |
+          TGZ=$(ls *.tgz | head -1)
+          tar -tzf "$TGZ" | grep -E "package/(src|scripts)/" > /dev/null || { echo "tgz 缺少 src/ 或 scripts/" >&2; exit 1; }
+          tar -tzf "$TGZ" | grep -E "\.(env|pem|key)$|node_modules/|\.git/" && { echo "tgz 含禁止内容" >&2; exit 1; } || true
+          echo "审计通过：$TGZ"
+
+      - name: 生成 SHA-256
+        working-directory: plugins/${{ env.PLUGIN }}
+        run: |
+          TGZ=$(ls *.tgz | head -1)
+          sha256sum "$TGZ" | tee "$TGZ.sha256"
+
+      - name: 发布到 npm（OIDC provenance，官方源；版本已存在则跳过）
+        working-directory: plugins/${{ env.PLUGIN }}
+        run: |
+          if npm view "${{ env.PKG_NAME }}@${{ env.PKG_VERSION }}" version --registry https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "版本 ${{ env.PKG_VERSION }} 已存在，跳过 publish"
+          else
+            TGZ=$(ls *.tgz | head -1)
+            npm publish "$TGZ" --access public --provenance --registry https://registry.npmjs.org/
+          fi
+
+      - name: 创建 GitHub Release（同一 tgz + sha256；已存在则跳过）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: plugins/${{ env.PLUGIN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} 已存在，跳过"
+          else
+            TGZ=$(ls *.tgz | head -1)
+            gh release create "${{ github.ref_name }}" \
+              --repo "${{ github.repository }}" \
+              --verify-tag \
+              --title "${{ github.ref_name }}" \
+              --notes "npm 包：\`${{ env.PKG_NAME }}@${{ env.PKG_VERSION }}\`" \
+              "$TGZ" "$TGZ.sha256"
+          fi
