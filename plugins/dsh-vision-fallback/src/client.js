@@ -56,6 +56,7 @@ window.__ModuleLoader__.load({
 			);
 			const value = snap.value || {};
 			const enabled = Boolean(value.enabled);
+			const preanalyze = Boolean(value.preanalyze);
 			const currentProvider = typeof value.provider === "string" ? value.provider : "";
 			const currentModel = typeof value.model === "string" ? value.model : "";
 
@@ -99,6 +100,7 @@ window.__ModuleLoader__.load({
 				setBusy(true); setSaved(false);
 				Promise.all([
 					scope.set("enabled", enabled),
+					scope.set("preanalyze", preanalyze),
 					scope.set("provider", provider),
 					scope.set("model", model)
 				]).then(() => {
@@ -111,6 +113,14 @@ window.__ModuleLoader__.load({
 				if (busy) return;
 				setBusy(true); setSaved(false);
 				scope.set("enabled", !enabled)
+					.catch(() => {})
+					.finally(() => setBusy(false));
+			};
+
+			const togglePreanalyze = () => {
+				if (busy) return;
+				setBusy(true); setSaved(false);
+				scope.set("preanalyze", !preanalyze)
 					.catch(() => {})
 					.finally(() => setBusy(false));
 			};
@@ -137,12 +147,17 @@ window.__ModuleLoader__.load({
 						react.createElement("span", { className: open ? "dsh-o-chevron dsh-o-chevronOpen" : "dsh-o-chevron" }, "▾")),
 					open ? react.createElement("div", { className: "dsh-o-body" },
 						react.createElement("p", { style: { margin: "0 0 10px" } },
-							"当主模型不支持图片输入时，自动改用下方选择的视觉模型处理该轮请求。"),
+							"图片消息处理：预分析模式（推荐）在图片进入会话前用视觉模型分析成文本，图片留在消息中（可查看），分析结果进入上下文供主模型使用；识别结果不理想时主模型可主动调用 vision_inspect 工具二次识别。关闭预分析则退回「含图轮次临时切换视觉模型」模式。"),
 						react.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" } },
 							react.createElement("input", {
 								type: "checkbox", className: "dsh-o-check", checked: enabled, onChange: toggle, disabled: busy
 							}),
-							"启用视觉回退"),
+							"启用图片处理"),
+						react.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" } },
+							react.createElement("input", {
+								type: "checkbox", className: "dsh-o-check", checked: preanalyze, onChange: togglePreanalyze, disabled: busy || !enabled
+							}),
+							"预分析模式（图片转文本，不留在上下文）"),
 						react.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 } },
 							react.createElement("select", {
 								className: "dsh-o-input", value: provider, onChange: (e) => { setProvider(e.target.value); setModel(""); },
