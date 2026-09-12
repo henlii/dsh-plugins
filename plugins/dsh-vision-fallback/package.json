@@ -28,5 +28,10 @@
   "files": [
     "src"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/henlii/dsh-plugins.git",
+    "directory": "plugins/dsh-vision-fallback"
+  },
   "license": "MIT"
 }
