@@ -12,7 +12,7 @@
 // Settings card: registers the "插件配置" card (settings.plugin.item) so the
 // deployment can see the auth status and how to change the password.
 window.__ModuleLoader__.load({
-	id: "dsh-web-auth",
+	id: "@henlii/dsh-web-auth",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;

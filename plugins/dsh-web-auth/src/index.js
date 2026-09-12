@@ -27,7 +27,6 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { gzipSync } from "node:zlib";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
 import z from "@deepseek-ai/schemastery";
@@ -54,6 +53,18 @@ function defaultConfigDir() {
 
 const DEFAULT_TOKEN_FILE = join(defaultConfigDir(), "web-auth-tokens.json");
 const DEFAULT_PASSWORD_FILE = join(defaultConfigDir(), "web-auth.password");
+
+// Login throttle. The password is a deployment secret with enough entropy that
+// guessing is impractical over a network, but an unthrottled endpoint still
+// lets a weak or reused password fall to a dictionary in seconds. Track
+// failures per peer address in a sliding window, lock the peer at the
+// threshold, and keep a coarser global lock so spoofed/distributed sources
+// cannot sidestep the per-peer one.
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_LOCK_MS = 60 * 1000;
+const LOGIN_GLOBAL_MAX_FAILURES = 30;
+const LOGIN_GLOBAL_LOCK_MS = 5 * 60 * 1000;
 
 // Browser-side UUID polyfill: `crypto.randomUUID` only exists in secure
 // contexts, and a page served over plain HTTP on a LAN/Tailscale IP is not
@@ -131,13 +142,23 @@ function pathnameOf(req) {
   }
 }
 
-function rewriteToLoopback(req, port) {
-  const lbHost = `127.0.0.1:${port}`;
-  if (typeof req.headers.host === "string") req.headers.host = lbHost;
-  if (typeof req.headers.origin === "string") req.headers.origin = `http://${lbHost}`;
-  if (typeof req.headers.referer === "string") {
-    req.headers.referer = req.headers.referer.replace(/^https?:\/\/[^/]+/i, `http://${lbHost}`);
+// Normalize a request for the privileged Host plane without changing its
+// authority.
+//
+// The Host/Origin fence rejects `sec-fetch-site: cross-site` and any Origin
+// that disagrees with Host, and the official browser cookie is bound to the
+// authority it was minted for. Rewriting Host to loopback would therefore both
+// invent a second authority (breaking the cookie the LAN browser actually
+// holds) and defeat the fence's own purpose. Keep the browser's real authority
+// and only clear the cross-site markers the privileged methods reject.
+function normalizePrivilegedRequest(req, _port) {
+  if (typeof req.headers.host === "string" && typeof req.headers.origin !== "string") {
+    req.headers.origin = `http://${req.headers.host}`;
   }
+  if (typeof req.headers.referer === "string" && typeof req.headers.host === "string") {
+    req.headers.referer = req.headers.referer.replace(/^https?:\/\/[^/]+/i, `http://${req.headers.host}`);
+  }
+  req.headers["sec-fetch-site"] = "same-origin";
 }
 
 function readCookieValue(req, cookieName) {
@@ -156,6 +177,54 @@ function safeEqual(a, b) {
   const bb = Buffer.from(String(b), "utf8");
   if (ba.length !== bb.length) return false;
   return timingSafeEqual(ba, bb);
+}
+
+/**
+* Sliding-window login throttle keyed by peer address.
+* @returns {{ check: (ip:string)=>{locked:boolean,retryAfter:number}, recordFailure: (ip:string)=>void, clear: (ip:string)=>void }}
+*   stateful throttle; `check` reports the current lock for one peer.
+*/
+function createLoginThrottle() {
+  const failures = new Map(); // ip -> { count, windowStart }
+  const locks = new Map(); // ip -> lockedUntil
+  const global = { count: 0, windowStart: 0, lockedUntil: 0 };
+  return {
+    check(ip) {
+      const now = Date.now();
+      if (global.lockedUntil > now) {
+        return { locked: true, retryAfter: Math.ceil((global.lockedUntil - now) / 1000) };
+      }
+      const until = locks.get(ip) ?? 0;
+      if (until > now) return { locked: true, retryAfter: Math.ceil((until - now) / 1000) };
+      return { locked: false, retryAfter: 0 };
+    },
+    recordFailure(ip) {
+      const now = Date.now();
+      let rec = failures.get(ip);
+      if (rec === undefined || now - rec.windowStart > LOGIN_WINDOW_MS) {
+        rec = { count: 0, windowStart: now };
+      }
+      rec.count++;
+      failures.set(ip, rec);
+      if (now - global.windowStart > LOGIN_WINDOW_MS) {
+        global.count = 0;
+        global.windowStart = now;
+      }
+      global.count++;
+      if (rec.count >= LOGIN_MAX_FAILURES) locks.set(ip, now + LOGIN_LOCK_MS);
+      if (global.count >= LOGIN_GLOBAL_MAX_FAILURES) global.lockedUntil = now + LOGIN_GLOBAL_LOCK_MS;
+      // Bound memory: drop entries whose window has already expired.
+      if (failures.size > 2000) {
+        for (const [key, value] of failures) {
+          if (now - value.windowStart > LOGIN_WINDOW_MS) failures.delete(key);
+        }
+      }
+    },
+    clear(ip) {
+      failures.delete(ip);
+      locks.delete(ip);
+    },
+  };
 }
 
 function readJsonBody(req, limit = 65536) {
@@ -352,9 +421,10 @@ function apply(ctx, config) {
     };
   };
 
+  const loginThrottle = createLoginThrottle();
+
   const handleAuth = async (req, res) => {
-    const pathname = pathnameOf(req);
-    if (pathname === "/api/auth/login") {
+    const pathname = pathnameOf(req);    if (pathname === "/api/auth/login") {
       if (req.method !== "POST") {
         sendJson(res, 405, { error: "method not allowed" });
         return;
@@ -362,6 +432,12 @@ function apply(ctx, config) {
       const src = resolvePassword();
       if (src.password === null) {
         sendJson(res, 503, { error: "web-auth: no password configured (set DSH_WEB_AUTH_PASSWORD or write the password file)" });
+        return;
+      }
+      const peer = peerAddress(req);
+      const lock = loginThrottle.check(peer);
+      if (lock.locked) {
+        sendJson(res, 429, { error: "too many attempts" }, { "retry-after": String(lock.retryAfter) });
         return;
       }
       let body = null;
@@ -372,9 +448,11 @@ function apply(ctx, config) {
       }
       const supplied = body !== null && typeof body === "object" && typeof body.password === "string" ? body.password : "";
       if (!safeEqual(supplied, src.password)) {
+        loginThrottle.recordFailure(peer);
         sendJson(res, 401, { error: "invalid password" });
         return;
       }
+      loginThrottle.clear(peer);
       const token = issueToken(req);
       sendJson(res, 200, { ok: true }, { "set-cookie": cookieHeader(token, Math.floor(ttlMs / 1000)) });
       return;
@@ -502,7 +580,7 @@ function apply(ctx, config) {
       sendJson(res, 401, { error: "unauthorized" });
       return;
     }
-    rewriteToLoopback(req, port);
+    normalizePrivilegedRequest(req, port);
     await next(req, res);
   };
 
@@ -519,7 +597,7 @@ function apply(ctx, config) {
       socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
       return;
     }
-    rewriteToLoopback(req, port);
+    normalizePrivilegedRequest(req, port);
     next(req, socket, head);
   };
 
@@ -537,8 +615,64 @@ function apply(ctx, config) {
   // after apiProxy resolves, so they are NOT present at our apply time).
   const origRegister = webServer.register.bind(webServer);
   const origRegisterUpgrade = webServer.registerUpgrade.bind(webServer);
+  const origRegisterFallback = webServer.registerFallback.bind(webServer);
   const httpWrapped = [];
   const upgradeWrapped = [];
+
+  // The browser-session launch token (dsh >= 0.1.2-alpha.1): the shell requires
+  // one `?token=` exchange on the root path before it serves index.html at all,
+  // and mints an authority-bound cookie from it. LAN browsers arrive without
+  // that token, so the index request is rewritten to carry it once. The token
+  // rotates every process start, so it is read live from the connection
+  // service (older hosts without that method return empty and nothing changes).
+  const launchToken = () => {
+    try {
+      const connection = ctx.get("connection");
+      const fn = connection?.authenticatedUrl;
+      if (typeof fn !== "function") return "";
+      const url = new URL(fn.call(connection, `http://127.0.0.1:${port}`));
+      return url.searchParams.get("token") ?? "";
+    } catch {
+      return "";
+    }
+  };
+
+  // The shipped Web composition claims the fallback seat for the SPA dist
+  // server, whose index authentication calls the Host connection's
+  // `authorizeIndex` with the ORIGINAL `req.url`. Wrapping the fallback lets
+  // the LAN index request reach that check already carrying the launch token,
+  // which is the only way index.html is served on a non-loopback page. The
+  // token is never exposed to the browser: the host's own check answers with a
+  // 303 to the clean `/` and an HttpOnly cookie, and the URL stays clean.
+  // Rewrite a LAN index request so it carries the launch token once, letting
+  // the Host's own index authentication mint the browser cookie.
+  const withLaunchToken = (handler) => async (req, res) => {
+    if (!isLoopbackPeer(req)) {
+      const rawUrl = req.url || "/";
+      const isIndexRequest = (req.method === "GET" || req.method === "HEAD") &&
+        (rawUrl === "/" || rawUrl.startsWith("/?") || rawUrl === "/index.html");
+      const hasAuthCookie = /(?:^|;\s*)dsh-auth-/.test(req.headers.cookie || "");
+      if (isIndexRequest && !hasAuthCookie) {
+        const token = launchToken();
+        if (token.length > 0) req.url = `/?token=${encodeURIComponent(token)}`;
+      }
+    }
+    return handler(req, res);
+  };
+
+  // The shipped composition claims the fallback seat during its own bundle
+  // apply, which may run BEFORE this row (insert order is not guaranteed), so
+  // the patched register below never sees that call. Swap the live seat's
+  // handler in place when it is already taken; otherwise the patched register
+  // wraps whatever registers later. `fallback` is a private field today — an
+  // absent value simply means the seat is still free.
+  const existingFallback = webServer.fallback;
+  const seatTaken = typeof existingFallback === "function";
+  if (seatTaken) webServer.fallback = withLaunchToken(existingFallback);
+  webServer.registerFallback = (handler) => {
+    const owned = typeof handler === "function" && !seatTaken ? withLaunchToken(handler) : handler;
+    return origRegisterFallback(owned);
+  };
 
   webServer.register = (route) => {
     if (isApiRoute(route) && typeof route.handler === "function") {
@@ -579,41 +713,27 @@ function apply(ctx, config) {
   // through the register patch above and to the live map entry here. The
   // bundle path is resolved per request (clientModules table may not be
   // populated at our apply time); HMR/upgrade rebuilds are picked up too.
-  let pluginsCachedRaw = null;
-  let pluginsCachedBody = null;
-  const gzipCache = new Map();
-  const gzipBody = (raw, acceptEncoding, cacheKey) => {
-    if (!/\bgzip\b/.test(String(acceptEncoding || "")) || raw.length < 1024) {
-      return { buf: raw, encoding: null };
-    }
-    let hit = gzipCache.get(cacheKey);
-    if (hit === undefined || hit.len !== raw.length) {
-      const gz = gzipSync(raw);
-      if (gz.length >= raw.length) return { buf: raw, encoding: null };
-      if (gzipCache.size > 64) gzipCache.clear();
-      hit = { len: raw.length, buf: gz };
-      gzipCache.set(cacheKey, hit);
-    }
-    return { buf: hit.buf, encoding: "gzip" };
-  };
-  const sendPluginJs = (res, raw, cacheControl, acceptEncoding, cacheKey) => {
-    const packed = gzipBody(raw, acceptEncoding, cacheKey);
-    const headers = {
+  const sendPluginJs = (res, raw, cacheControl) => {
+    res.writeHead(200, {
       "content-type": "text/javascript; charset=utf-8",
-      "cache-control": cacheControl
-    };
-    if (packed.encoding) {
-      headers["content-encoding"] = packed.encoding;
-      headers.vary = "Accept-Encoding";
-    }
-    headers["content-length"] = String(packed.buf.length);
-    res.writeHead(200, headers);
-    res.end(packed.buf);
+      "cache-control": cacheControl,
+      "content-length": String(raw.length)
+    });
+    res.end(raw);
   };
   const wrapPluginsHandler = (original) => async (req, res) => {
-    const acceptEncoding = req.headers["accept-encoding"];
+    // Only the connection bundle needs a content rewrite; every other
+    // /plugins response (and the rewritten one) passes through untouched.
+    //
+    // NOTE: dsh 0.1.5+ serves the webserver with its own gzip middleware
+    // (`webserver.compression: gzip`). This wrapper must NOT compress again —
+    // double-compressing a `/plugins/??a,b,c` combo bundle corrupts it, and the
+    // browser then re-executes the script, which the client module system
+    // rejects with `duplicate factory registration`. So we only replace the
+    // body bytes of the patched bundle and let the official middleware handle
+    // encoding on the way out (we also drop any upstream content-encoding /
+    // content-length so the middleware can re-derive them).
     let pathname = "";
-    let rev = "";
     try {
       const url = new URL(req.url || "/", "http://x");
       pathname = decodeURIComponent(url.pathname);
@@ -621,23 +741,36 @@ function apply(ctx, config) {
     } catch {
       /* fall through to the original handler */
     }
-    const expected = `/plugins/${CONNECTION_CLIENT_ID}/client.js`;
-    if (pathname === expected) {
+    // The served connection bundle is reached through the combo route
+    // (`/plugins/??pkg/client.js,...`), whose pathname is `/plugins/` — the
+    // older single-package path is matched too, for compositions that still
+    // advertise it. Either way the edit is a single needle replacement inside
+    // the response body; the client-side loopback predicate is the only place
+    // that string occurs (verified against the composed bundle).
+    const isSingleConnection = pathname === `/plugins/${CONNECTION_CLIENT_ID}/client.js`;
+    const isCombo = pathname === "/plugins/";
+    if (!isSingleConnection && !isCombo) return original(req, res);
+
+    const hostnames = resolveLanHostnames();
+    if (hostnames.length === 0) return original(req, res);
+
+    if (isSingleConnection) {
       const mod = ctx.get("clientModules");
       const clientPath = mod !== void 0 ? mod.clientPath(CONNECTION_CLIENT_ID) : void 0;
       if (typeof clientPath === "string") {
         const raw = readFileSync(clientPath, "utf8");
-        let body = pluginsCachedBody;
-        if (raw !== pluginsCachedRaw) {
-          body = patchConnectionClient(raw, resolveLanHostnames());
-          pluginsCachedRaw = raw;
-          pluginsCachedBody = body;
-          gzipCache.delete(expected);
-        }
-        sendPluginJs(res, Buffer.from(body), "no-store", acceptEncoding, expected);
+        sendPluginJs(res, Buffer.from(patchConnectionClient(raw, hostnames)), "no-store");
         return;
       }
     }
+
+    // Combo response: the official handler still produces it, so revision,
+    // HEAD, 404 and content-type semantics stay official. Only the body bytes
+    // are rewritten on the way out — the frame boundaries are untouched, so a
+    // multi-package combo keeps registering each factory exactly once. The
+    // official gzip middleware sits outside this route and compresses whatever
+    // is written here, so the body must stay uncompressed at this layer.
+    const chunks = [];
     const writeHead = res.writeHead.bind(res);
     const end = res.end.bind(res);
     let status = 200;
@@ -656,16 +789,20 @@ function apply(ctx, config) {
         writeHead(status, headers);
         return end(chunk, encoding, cb);
       }
-      const raw = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
-      if (rev) headers["cache-control"] = "public, max-age=31536000, immutable";
-      const packed = gzipBody(raw, acceptEncoding, pathname);
-      if (packed.encoding) {
-        headers["content-encoding"] = packed.encoding;
-        headers.vary = "Accept-Encoding";
-        headers["content-length"] = String(packed.buf.length);
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
+      const raw = Buffer.concat(chunks);
+      const text = raw.toString("utf8");
+      const patched = patchConnectionClient(text, hostnames);
+      if (patched === text) {
+        writeHead(status, headers);
+        return end(raw, undefined, cb);
       }
+      const body = Buffer.from(patched, "utf8");
+      delete headers["content-length"];
+      delete headers["content-encoding"];
+      headers["cache-control"] = "no-store";
       writeHead(status, headers);
-      return end(packed.buf, undefined, cb);
+      return end(body, undefined, cb);
     };
     return original(req, res);
   };
@@ -798,6 +935,13 @@ function apply(ctx, config) {
     }
     webServer.register = origRegister;
     webServer.registerUpgrade = origRegisterUpgrade;
+    webServer.registerFallback = origRegisterFallback;
+    // The live seat was swapped in place (the composition had already claimed
+    // it before this row applied); put the original handler back so disabling
+    // or reloading the plugin leaves no wrapper behind.
+    if (seatTaken && webServer.fallback !== existingFallback) {
+      webServer.fallback = existingFallback;
+    }
   }, "dsh-web-auth: restore webserver methods");
 }
 

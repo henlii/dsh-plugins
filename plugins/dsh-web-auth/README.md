@@ -59,19 +59,21 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | 能力 | 说明 |
 |------|------|
 | 密码登录 | 非回环 `/api` 与 WebSocket 需 `POST /api/auth/login` 下发的 HttpOnly cookie |
-| 特权信任 | 认证后请求改写为回环外观，`settings`/`credentials`/`agentPreset`/模型发现等特权方法内网可用 |
+| 特权信任 | 认证后请求保留浏览器真实 authority（仅补同源 Origin/Referer、清 cross-site 标记），`settings`/`credentials`/`agentPreset`/模型发现等特权方法内网可用 |
 | 登录浮层 | 纯 DOM 全屏登录卡片（不依赖应用外壳插槽），未登录时必然可见 |
-| 插件包 gzip | 包装 `/plugins`：gzip 客户端 JS；带 `?rev=` 时 `immutable` 缓存。官方默认 `no-cache` 明文约 3.5MB，否则「Loading plugins…」在手机上要数秒 |
+| 登录限速 | 按真实 TCP 对端地址滑动窗口计数：5 次失败锁 60 秒，另有全局阈值防分布式；锁定期间正确密码也拒绝（429 + `Retry-After`） |
+| 客户端 bundle 补丁 | 在 `/plugins` 组合响应体上把连接客户端的 `isLoopbackHostname` 判定串扩到本部署的 LAN/Tailscale 主机名，让 LAN 页面走 host 设置作用域。保留官方对 revision/HEAD/404/content-type 的判定，压缩交给官方 `webserver.compression` 中间件 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
-| 客户端回环补丁 | 伺服连接客户端时补 `isLoopbackHostname`，让 LAN 页面走 host 设置作用域 |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
 | 设置页卡片 | 改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
 | 远程打开配置文件 | 替换官方「打开配置文件」按钮：headless 服务器上改为大模态框查看/编辑 `settings.yaml`（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时仍走官方原生打开 |
 
 ## 安全边界
 
-- 认证按**真实 TCP 对端地址**判定（`127.0.0.1`/`::1` 免密），Host 头伪造无法绕过；
+- 认证按**真实 TCP 对端地址**判定（`127.0.0.1`/`::1` 免密），Host 头与 `X-Forwarded-For` 伪造无法绕过；
 - 静态资源（HTML/JS/CSS）不设密码门槛（页面本身无数据），`/api` 与 WebSocket 全在密码之后；
+- 未通过密码认证的远程访客只拿到独立登录页；官方启动 token 仅在 index 握手时补一次，不预先发放给访客；
+- 回环同样需要官方浏览器 cookie（官方设计），本插件只在其上增加一层密码门；
 - 密码是部署级秘密（环境变量/0600 文件），不写入 GUI 明文编辑。
 
 ## 插件管理
