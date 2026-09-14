@@ -63,6 +63,7 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | 登录浮层 | 纯 DOM 全屏登录卡片（不依赖应用外壳插槽），未登录时必然可见 |
 | 登录限速 | 按真实 TCP 对端地址滑动窗口计数：5 次失败锁 60 秒，另有全局阈值防分布式；锁定期间正确密码也拒绝（429 + `Retry-After`） |
 | 客户端 bundle 补丁 | 在 `/plugins` 组合响应体上把连接客户端的 `isLoopbackHostname` 判定串扩到本部署的 LAN/Tailscale 主机名，让 LAN 页面走 host 设置作用域。保留官方对 revision/HEAD/404/content-type 的判定，压缩交给官方 `webserver.compression` 中间件 |
+| 官方 index 握手 | 非回环 index 请求在**宿主自己的判定**（`connection.requestRejection`）返回 401 时补上官方启动 token，让宿主自行种下浏览器 cookie；判定通过则原样放行（不多一次跳转，也不会成环）。因此浏览器里留着失效的 `dsh-auth-*` cookie（异 authority／端口、或密钥已轮换）时能自动恢复，而不是永久停在官方那句 401 原文上 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
 | 设置页卡片 | 改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
@@ -72,7 +73,7 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 
 - 认证按**真实 TCP 对端地址**判定（`127.0.0.1`/`::1` 免密），Host 头与 `X-Forwarded-For` 伪造无法绕过；
 - 静态资源（HTML/JS/CSS）不设密码门槛（页面本身无数据），`/api` 与 WebSocket 全在密码之后；
-- 未通过密码认证的远程访客只拿到独立登录页；官方启动 token 仅在 index 握手时补一次，不预先发放给访客；
+- 未通过密码认证的远程访客只拿到独立登录页（插件自身的 token 只在认证通过后签发）；官方启动 token 仅在宿主判定为未认证的 index 握手时补一次，不预先发放给访客；
 - 回环同样需要官方浏览器 cookie（官方设计），本插件只在其上增加一层密码门；
 - 密码是部署级秘密（环境变量/0600 文件），不写入 GUI 明文编辑。
 

@@ -644,15 +644,53 @@ function apply(ctx, config) {
   // which is the only way index.html is served on a non-loopback page. The
   // token is never exposed to the browser: the host's own check answers with a
   // 303 to the clean `/` and an HttpOnly cookie, and the URL stays clean.
-  // Rewrite a LAN index request so it carries the launch token once, letting
-  // the Host's own index authentication mint the browser cookie.
+  // Rewrite a LAN index request so it carries the launch token, letting the
+  // Host's own index authentication mint the browser cookie.
+  //
+  // Whether the token is needed is decided by the Host's own predicate,
+  // `connection.requestRejection`: the Host/Origin fence (403) followed by
+  // browser-session verification (401 for a missing, expired, foreign-authority
+  // or otherwise unverifiable cookie). Only a 401 is answered with the token.
+  // The browser-session cookie is named `dsh-auth-<sha256(authority)>` and
+  // signed with the secret held in the Host's credential store, while the Host
+  // verifies it only against the CURRENT authority and secret. A browser that
+  // holds a cookie minted for another authority on the same host (a test
+  // instance on a different port, say) or before a secret rotation therefore
+  // sends one that is never accepted; skipping the rewrite merely because *some*
+  // `dsh-auth-*` cookie is present — what this used to do — left such a browser
+  // on a plain-text 401 that no reload could clear. Rewriting on 401 cannot
+  // loop either: an accepted request passes through untouched, and a rewritten
+  // one is answered with 303 plus a fresh cookie, so the next load is accepted.
+  //
+  // A host without `requestRejection` falls back to the presence check, which
+  // stays loop-free because it skips the rewrite for any request already
+  // carrying a browser-session cookie.
+  const hasBrowserSessionCookie = (req) => /(?:^|;\s*)dsh-auth-/.test(req.headers.cookie || "");
+
+  const needsLaunchToken = (req) => {
+    const connection = ctx.get("connection");
+    const rejection = connection !== void 0 ? connection.requestRejection : void 0;
+    if (typeof rejection === "function") {
+      try {
+        const verdict = rejection.call(connection, req);
+        if (verdict === 401) return true;
+        if (verdict === void 0) return false;
+      } catch {
+        /* an unusable predicate is treated like an older host */
+      }
+    }
+    return !hasBrowserSessionCookie(req);
+  };
+
+  // Only GET is rewritten: the Host's token branch requires GET, so a HEAD
+  // carrying a token would be rejected where a HEAD without one may still be
+  // served from the browser's existing cookie.
   const withLaunchToken = (handler) => async (req, res) => {
     if (!isLoopbackPeer(req)) {
       const rawUrl = req.url || "/";
-      const isIndexRequest = (req.method === "GET" || req.method === "HEAD") &&
+      const isIndexRequest = req.method === "GET" &&
         (rawUrl === "/" || rawUrl.startsWith("/?") || rawUrl === "/index.html");
-      const hasAuthCookie = /(?:^|;\s*)dsh-auth-/.test(req.headers.cookie || "");
-      if (isIndexRequest && !hasAuthCookie) {
+      if (isIndexRequest && needsLaunchToken(req)) {
         const token = launchToken();
         if (token.length > 0) req.url = `/?token=${encodeURIComponent(token)}`;
       }
