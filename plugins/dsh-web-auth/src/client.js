@@ -9,9 +9,9 @@
 // Slot registration: it must be visible even while the shell is still booting
 // and its API calls are 401ing, so it is appended straight to document.body.
 //
-// Settings tab: contributes an "访问认证" tab to the Plugins settings page
-// (settings.plugins.tab) so the deployment can see the auth status and how to
-// change the password.
+// Settings card: contributes the "访问认证" card to the main Plugins page
+// (plugins.item) so the deployment can see the auth status and how to change
+// the password, next to the other plugin configuration pages.
 window.__ModuleLoader__.load({
 	id: "@henlii/dsh-web-auth",
 	factory: (require) => {
@@ -27,28 +27,17 @@ window.__ModuleLoader__.load({
 		// 卡片壳样式（PluginCard.module.css 语义，变量随主题）。
 		const CARD_CSS = `
 .dsh-o-cards{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.dsh-o-card{list-style:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;transition:border-color .16s,background .16s}
-.dsh-o-card:hover{border-color:var(--dsw-alias-label-dimmed)}
-.dsh-o-cardOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}
-.dsh-o-header{appearance:none;width:100%;font:inherit;color:inherit;text-align:left;cursor:pointer;background:0 0;border:0;border-radius:12px;align-items:center;gap:12px;padding:14px 16px;display:flex}
-.dsh-o-header:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}
-.dsh-o-headText{flex-direction:column;flex:1;gap:4px;min-width:0;display:flex}
-.dsh-o-name{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:1.4}
-.dsh-o-description{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}
-.dsh-o-chevron{color:var(--dsw-alias-label-tertiary);flex:none;transition:transform .16s}
-.dsh-o-chevronOpen{transform:rotate(180deg)}
-.dsh-o-body{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding:12px 0 8px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6}
+.dsh-o-cardBody{padding:16px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6}
+.dsh-o-card{list-style:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px}
 .dsh-o-footer{border-top:1px solid var(--dsw-alias-border-l2);justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px;display:flex;flex-wrap:wrap}
 .dsh-o-btn{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}
 .dsh-o-btn:disabled{opacity:.4;cursor:default}
 .dsh-o-btn-discard{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:0 0}
-.dsh-o-btn-discard:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}
 .dsh-o-btn-save{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}
 .dsh-o-input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5;box-sizing:border-box;width:100%}
 .dsh-o-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
 .dsh-o-status{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}
 .dsh-o-err{color:var(--dsw-alias-label-error);font-size:12px;line-height:1.5;margin:6px 0 0}
-.dsh-o-ok{color:var(--dsw-alias-state-success-primary);font-size:12px;line-height:1.5;margin:6px 0 0}
 .dsh-o-btn-mini{appearance:none;font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:2px 8px;font-size:12px;line-height:1.5;background:0 0;color:var(--dsw-alias-label-secondary)}
 .dsh-o-btn-mini:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}
 .dsh-o-btn-mini:disabled{opacity:.4;cursor:default}`;
@@ -237,10 +226,11 @@ window.__ModuleLoader__.load({
 			catch { return String(ms); }
 		}
 
-		function AuthInfoCard() {
+		function AuthInfoCard(props) {
+			// 「插件」页列表用 summary 视图只取一句描述，点进去才渲染整张卡片。
+			if (props !== void 0 && props.view === "summary") return "内网/LAN 访问密码认证与信任插件";
 			const [info, setInfo] = react.useState(null);
 			const [failed, setFailed] = react.useState(false);
-			const [open, setOpen] = react.useState(false);
 			const [sessions, setSessions] = react.useState([]);
 			const [password, setPassword] = react.useState("");
 			const [confirm, setConfirm] = react.useState("");
@@ -268,11 +258,10 @@ window.__ModuleLoader__.load({
 
 			react.useEffect(() => { void loadStatus(); }, [loadStatus]);
 			react.useEffect(() => {
-				if (!open) return undefined;
 				void loadSessions();
-				const timer = setInterval(() => { void loadSessions(); }, 5000);
+				const timer = setInterval(() => { void loadSessions(); }, 10000);
 				return () => clearInterval(timer);
-			}, [open, loadSessions]);
+			}, [loadSessions]);
 
 			const savePassword = () => {
 				if (busy) return;
@@ -313,26 +302,13 @@ window.__ModuleLoader__.load({
 				.finally(() => setBusy(false));
 			};
 
-			const title = "dsh-web-auth";
-			const description = "内网/LAN 访问密码认证与信任插件";
 			const sourceLabel = info === null || !info.passwordConfigured ? "" : info.passwordSource === "passwordFile" ? "密码文件" : info.passwordSource === "env" ? "环境变量" : "未知";
 
 			return react.createElement(react.Fragment, null,
 				react.createElement("style", { "data-plugin-css": "dsh-web-auth/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
 				react.createElement("ul", { className: "dsh-o-cards" },
-				react.createElement("li", { className: open ? "dsh-o-card dsh-o-cardOpen" : "dsh-o-card" },
-					react.createElement("button", {
-						type: "button",
-						className: "dsh-o-header",
-						"aria-expanded": open,
-						"aria-label": `${open ? "收起设置" : "展开设置"}: ${title}`,
-						onClick: () => setOpen(!open)
-					},
-						react.createElement("span", { className: "dsh-o-headText" },
-							react.createElement("span", { className: "dsh-o-name" }, title),
-							react.createElement("span", { className: "dsh-o-description" }, description)),
-						react.createElement("span", { className: open ? "dsh-o-chevron dsh-o-chevronOpen" : "dsh-o-chevron" }, "▾")),
-					open && react.createElement("div", { className: "dsh-o-body" },
+				react.createElement("li", { className: "dsh-o-card" },
+					react.createElement("div", { className: "dsh-o-cardBody" },
 						failed
 						? react.createElement("p", { className: "dsh-o-err", style: { margin: 0 } }, "（需登录后查看）")
 						: info === null
@@ -473,14 +449,14 @@ window.__ModuleLoader__.load({
 				}
 			})();
 
-			// 设置 → 插件 → 「访问认证」页签：认证状态、改访问密码、列出已登录会话。
-			// 0.1.7 起官方插件配置页由 settings.plugins.tab 列表槽组成（旧版的
-			// keyed 槽 settings.plugin.item 已不存在）。
+			// 「插件」页（主界面左侧导航）的配置卡片：认证状态、改访问密码、列出已登录
+			// 会话。0.1.7 把插件配置统一收到这个页面，槽子由 dsh-client-ui-plugin-manager
+			// 声明（main 槽 key "plugins" 的子槽），注册它即可出现在卡片列表里。
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
-				slots.inject("settings.plugins.tab", () => slots.register(
-					{ name: "settings.plugins.tab", id: "dsh-web-auth", order: 20, label: () => "访问认证" },
-					() => react.createElement(AuthInfoCard)
+				slots.inject("plugins.item", () => slots.register(
+					{ name: "plugins.item", id: "dsh-web-auth", order: 40, label: () => "访问认证" },
+					(props) => react.createElement(AuthInfoCard, props)
 				));
 			}
 
