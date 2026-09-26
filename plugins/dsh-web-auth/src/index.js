@@ -645,8 +645,8 @@ function apply(ctx, config) {
     const path = route && route.path;
     if (path === "/api" || (typeof path === "string" && path.startsWith("/api/"))) return true;
     // Third-party plugins sometimes register sensitive JSON routes outside
-    // /api (e.g. /vision-bridge/rpc). `extraProtectedPaths` lets the deployment
-    // pull those behind the same password gate.
+    // /api. `extraProtectedPaths` lets the deployment pull those behind the
+    // same password gate.
     return Array.isArray(cfg.extraProtectedPaths) && cfg.extraProtectedPaths.includes(path);
   };
 
