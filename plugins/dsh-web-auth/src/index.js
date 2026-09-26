@@ -27,16 +27,11 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
-import z from "@deepseek-ai/schemastery";
 
 const name = "dsh-web-auth";
 const inject = ["webServer", "timer"];
 const SETTINGS_DOCUMENT_ROUTE = "/api/dsh-web-auth/settings-document";
-const SETTINGS_NS = settingsNamespace("dsh-web-auth");
-const SettingsSchema = z.object({});
-
 const COOKIE_NAME = "dsh_web_auth";
 const AUTH_PREFIX = "/api/auth/";
 const LOOPBACK_PEERS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
@@ -277,12 +272,6 @@ function normalizeTokenRecord(token, value, now) {
 }
 
 function apply(ctx, config) {
-  // rc.8 keyed settings.plugin.item only dispatches namespaces the Host serves.
-  installSettingsSection(ctx, SETTINGS_NS, SettingsSchema, {}, {
-    setSource() {},
-    onChange() {}
-  });
-
   const webServer = ctx.get("webServer");
   if (webServer === void 0) return;
 

@@ -9,8 +9,9 @@
 // Slot registration: it must be visible even while the shell is still booting
 // and its API calls are 401ing, so it is appended straight to document.body.
 //
-// Settings card: registers the "插件配置" card (settings.plugin.item) so the
-// deployment can see the auth status and how to change the password.
+// Settings tab: contributes an "访问认证" tab to the Plugins settings page
+// (settings.plugins.tab) so the deployment can see the auth status and how to
+// change the password.
 window.__ModuleLoader__.load({
 	id: "@henlii/dsh-web-auth",
 	factory: (require) => {
@@ -19,11 +20,13 @@ window.__ModuleLoader__.load({
 		var react = require("react");
 
 		const name = "dsh-web-auth-client";
-		const inject = ["slots", "settingsScope", "connection"];
+		// 只声明 0.1.7 客户端确实存在的服务。configForms / remote.settings 由
+		// 下面 ctx.inject 延迟取用（装载顺序不确定，声明在 inject 里会一直 pending）。
+		const inject = ["slots"];
 
-		// 官方插件配置卡片样式壳（PluginCard.module.css 语义，变量随主题）。
-		// 与 dsh-auto-update / dsh-vision-fallback 共用同一套 dsh-o-* 类名。
+		// 卡片壳样式（PluginCard.module.css 语义，变量随主题）。
 		const CARD_CSS = `
+.dsh-o-cards{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
 .dsh-o-card{list-style:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;transition:border-color .16s,background .16s}
 .dsh-o-card:hover{border-color:var(--dsw-alias-label-dimmed)}
 .dsh-o-cardOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}
@@ -140,7 +143,7 @@ window.__ModuleLoader__.load({
 						}, "关闭"))));
 		}
 
-		function SettingsDocumentAction({ describe, api }) {
+		function SettingsDocumentAction({ describe, openNative }) {
 			const [doc, setDoc] = react.useState(null);
 			const [busy, setBusy] = react.useState(false);
 			const [error, setError] = react.useState(null);
@@ -166,16 +169,16 @@ window.__ModuleLoader__.load({
 						}
 						if (data.canOpenNative) {
 							// 宿主有桌面打开器：走官方 RPC（本机回环场景）。
-							return api.settings.openDocument({}).then((r) => {
-								if (!(r && r.result && r.result.ok)) {
-									setError((r && r.result && r.result.error && r.result.error.message) || "无法打开配置文件");
+							return openNative().then((r) => {
+								if (!(r && r.ok)) {
+									setError((r && r.error && r.error.message) || "无法打开配置文件");
 								}
 							});
 						}
 						setDoc({ path: data.path, content: data.content });
 						setCopied(false);
 					})
-					.catch(() => setError("无法连接服务器"))
+					.catch((err) => setError(err instanceof Error && err.message.length > 0 ? err.message : "无法连接服务器"))
 					.finally(() => setBusy(false));
 			};
 			const save = (content) => {
@@ -316,6 +319,7 @@ window.__ModuleLoader__.load({
 
 			return react.createElement(react.Fragment, null,
 				react.createElement("style", { "data-plugin-css": "dsh-web-auth/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
+				react.createElement("ul", { className: "dsh-o-cards" },
 				react.createElement("li", { className: open ? "dsh-o-card dsh-o-cardOpen" : "dsh-o-card" },
 					react.createElement("button", {
 						type: "button",
@@ -369,7 +373,7 @@ window.__ModuleLoader__.load({
 										}, "删除"))),
 								actionMsg ? react.createElement("p", { style: { margin: "8px 0 0", color: actionMsg.err ? "var(--dsw-alias-label-error)" : "var(--dsw-alias-state-success-primary)", fontSize: 12 } }, actionMsg.text) : null,
 								react.createElement("p", { className: "dsh-o-status", style: { marginTop: 10 } },
-									"保存密码会写入密码文件（优先于环境变量，立即生效），并踢掉其它已登录会话。")))));
+									"保存密码会写入密码文件（优先于环境变量，立即生效），并踢掉其它已登录会话。"))))));
 		}
 
 		function apply(ctx) {
@@ -469,12 +473,13 @@ window.__ModuleLoader__.load({
 				}
 			})();
 
-			// Register the 插件配置 card so the deployment can see auth status.
-			// priority 1：排在官方默认卡片（priority 0）之后。
+			// 设置 → 插件 → 「访问认证」页签：认证状态、改访问密码、列出已登录会话。
+			// 0.1.7 起官方插件配置页由 settings.plugins.tab 列表槽组成（旧版的
+			// keyed 槽 settings.plugin.item 已不存在）。
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
-				slots.inject("settings.plugin.item", () => slots.register(
-					{ name: "settings.plugin.item", key: "dsh-web-auth", priority: 1 },
+				slots.inject("settings.plugins.tab", () => slots.register(
+					{ name: "settings.plugins.tab", id: "dsh-web-auth", order: 20, label: () => "访问认证" },
 					() => react.createElement(AuthInfoCard)
 				));
 			}
@@ -483,21 +488,19 @@ window.__ModuleLoader__.load({
 			// `open-document` at a lower priority wins the cell (SlotCore picks the
 			// first live entry per id in priority order), so the remote page gets a
 			// working viewer instead of the native-opener RPC that fails headless.
-			const settingsScope = ctx.get("settingsScope");
-			const connection = ctx.get("connection");
-			if (slots !== void 0 && settingsScope !== void 0 && connection !== void 0) {
-				const describe = settingsScope.describe();
-				const api = connection.api;
-				slots.inject("settings.action", () => slots.register(
+			ctx.inject(["configForms", "remote", "remote.settings"], (settingsCtx) => {
+				const describe = settingsCtx.configForms.describe();
+				const openNative = () => settingsCtx.remote.settings.openSettingsDocument();
+				settingsCtx.slots.inject("settings.action", () => settingsCtx.slots.register(
 					{
 						name: "settings.action",
 						id: "open-document",
 						priority: -1,
-						inject: () => ({ describe, api })
+						inject: () => ({ describe, openNative })
 					},
 					(props) => react.createElement(SettingsDocumentAction, props)
 				));
-			}
+			});
 
 			ctx.effect(() => () => {
 				overlay.remove();

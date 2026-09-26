@@ -19,6 +19,13 @@ dsh web 直绑 `0.0.0.0`（方案 B）后，内网设备可直接连 `/api`，�
 
 回环（127.0.0.1）访问免密，方便本机运维。
 
+## 版本兼容
+
+面向 dsh **0.1.7-rc.2**（客户端 `settings.plugins.tab` 页签 + `configForms`/`remote.settings`
+服务，宿主 `settings.prepareDocument`）。旧版 dsh 的 keyed 设置槽 `settings.plugin.item`
+与 `settingsScope` 服务在 0.1.7 已不存在；插件不再依赖 `@deepseek-ai/dsh-settings`
+（该包的 `installSettingsSection` 已移除），设置页签改由客户端自己注册。
+
 ## 安装
 
 **独立安装：**
@@ -66,8 +73,8 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | 官方 index 握手 | 非回环 index 请求在**宿主自己的判定**（`connection.requestRejection`）返回 401 时补上官方启动 token，让宿主自行种下浏览器 cookie；判定通过则原样放行（不多一次跳转，也不会成环）。因此浏览器里留着失效的 `dsh-auth-*` cookie（异 authority／端口、或密钥已轮换）时能自动恢复，而不是永久停在官方那句 401 原文上 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
-| 设置页卡片 | 改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
-| 远程打开配置文件 | 替换官方「打开配置文件」按钮：headless 服务器上改为大模态框查看/编辑 `settings.yaml`（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时仍走官方原生打开 |
+| 设置页签 | 设置 → 内置插件 → 「访问认证」页签：改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
+| 远程打开配置文件 | 遮罩官方「打开配置文件」按钮：headless 服务器上改为模态框查看/编辑 profile patch（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时仍走官方原生打开 |
 
 ## 安全边界
 
