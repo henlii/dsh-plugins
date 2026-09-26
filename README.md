@@ -13,8 +13,8 @@
 **插件集合仓库**。集合内每个插件都是独立的 npm 包（纯 cordis 插件形态，0811 官方规范），
 挂在 dsh web profile 上：
 
-- **独立安装**：只想用一个插件时，按该插件 README 安装单个包 + insert 行；
-- **全部安装**：应用本仓库根 `cordis.patch.yml`（一次性插入所有插件行），`dsh web --patch` 即挂载全部。
+- **独立安装**：只用这个插件时，官方 CLI 一条命令装完即挂载（包自带 `dsh.bundle.patch`）；
+- **集合 patch**：不把包加进 `dsh.profile.bundles` 时的手动挂法，`dsh web --patch` 即挂载。
 
 ## 插件目录
 
@@ -31,7 +31,17 @@
 
 ## 安装
 
-### 全部安装（一次性）
+### 推荐：官方 CLI（包自带挂载层）
+
+```sh
+dsh plugin --profile web add /path/to/dsh-plugins/plugins/<name>
+```
+
+插件包声明了 `dsh.bundle.patch`，CLI 安装时会把它加进 `dsh.profile.bundles`，启动时自动合并
+它自带的 patch 层，无需手改 profile，装完就出现在「插件」页的「已安装」里。部署自己的配置在
+`$DSH_HOME/profiles/web/cordis.patch.yml` 里按行 id 覆盖（见各插件 README）。
+
+### 备选：集合 patch（手动挂）
 
 ```sh
 dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
@@ -40,30 +50,28 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 或把 [cordis.patch.yml](cordis.patch.yml) 的内容并入你的 profile 的
 `$DSH_HOME/profiles/web/cordis.patch.yml`（配置 HMR 实时生效，无需重启）。
 
-### 独立安装（单个插件）
-
-```sh
-dsh plugin --profile web add /path/to/dsh-plugins/plugins/<name>
-```
-
-然后在 `$DSH_HOME/profiles/web/cordis.patch.yml` 加对应 insert 行（见各插件 README），
-配置 HMR 实时生效。详细步骤见 [docs/INSTALL.md](docs/INSTALL.md)。
+> 两种方式**二选一**：包已经进了 `dsh.profile.bundles` 再用集合 patch 的 insert 行挂一次，
+> 就是同一个插件装两遍，插件树会因重复注册启动失败。
 
 > 注意：插件依赖的 `@deepseek-ai/*` / `cordis` 由 dsh 官方运行时经 profile pnpm 闭包注入，
 > **不要**在插件 `package.json` 里声明这些依赖（官方未发布到公共 npm，声明反而解析失败）。
+> 例外：类工具包（如 `@deepseek-ai/dsh-atomic-write`）可以声明，它不会作为服务注入。
+
+详细步骤见 [docs/INSTALL.md](docs/INSTALL.md)。
 
 ## 仓库结构
 
 ```text
 dsh-plugins/
-├── cordis.patch.yml         # 一次性全部安装的 patch 层（insert 所有插件）
+├── cordis.patch.yml         # 手动挂法（insert 行）；与 CLI 安装二选一
 ├── docs/
 │   ├── INSTALL.md           # 安装指南（独立 / 全部 / 配置）
 │   └── CONTRIBUTING.md      # 新增插件规范
 ├── examples/                # 各插件独立安装示例
 └── plugins/
     └── <name>/              # 每个插件 = 独立 npm 包
-        ├── package.json     # main/exports + dsh.client 声明
+        ├── package.json     # main/exports + dsh.bundle / dsh.client 声明
+        ├── cordis.patch.yml # bundle 挂载层（insert 自己那一行）
         ├── src/index.js     # Node half（Cordis entry）
         ├── src/client.js    # Client half（__ModuleLoader__.load）
         └── README.md        # 该插件文档

@@ -21,36 +21,38 @@ dsh web 直绑 `0.0.0.0`（方案 B）后，内网设备可直接连 `/api`，�
 
 ## 版本兼容
 
-面向 dsh **0.1.7-rc.2**（插件配置卡片走官方「插件」页的 `plugins.item` 槽，服务用
-`configForms`/`remote.settings`；宿主侧用 `settings.prepareDocument`）。旧版 dsh 的 keyed
-设置槽 `settings.plugin.item` 与 `settingsScope` 服务在 0.1.7 已不存在；插件不再依赖
-`@deepseek-ai/dsh-settings`（该包的 `installSettingsSection` 已移除），设置卡片改由客户端
-自己注册到插件页。
+面向 dsh **0.1.7-rc.2**（插件卡片挂在官方「插件」页 → 已安装 → 本插件详情页的
+`plugins.detail.section` 槽，服务用 `configForms`/`remote.settings`；宿主侧用
+`settings.prepareDocument`）。旧版 dsh 的 keyed 设置槽 `settings.plugin.item` 与
+`settingsScope` 服务在 0.1.7 已不存在；插件不再依赖 `@deepseek-ai/dsh-settings`
+（该包的 `installSettingsSection` 已移除），卡片改由客户端自己注册到插件页。
 
 ## 安装
 
-**独立安装：**
+本包自带 `dsh.bundle.patch`（见 `cordis.patch.yml`），所以 **`dsh plugin add` 一条命令
+就完成安装 + 挂载**：CLI 会把它加进 `dsh.profile.bundles`，启动时自动合并自带的 patch 层，
+插件随之出现在「插件」页的「已安装」里。
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-web-auth
+# 本仓库目录
+ dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-web-auth
+
+# 或 npm 包（已发布的话）
+dsh plugin --profile web add @henlii/dsh-web-auth
 ```
 
-**或全部安装（集合）：**
-
-```sh
-dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
-```
-
-然后在 `$DSH_HOME/profiles/web/cordis.patch.yml` 增加（或确认已在集合 patch 中）：
+挂载行 id 是 `web-auth`，部署自己的配置在 profile 的 `cordis.patch.yml` 里按 id 覆盖：
 
 ```yaml
-- insert:
-    - id: web-auth
-      name: 'dsh-web-auth'
-      config:
-        password: !!js process.env.DSH_WEB_AUTH_PASSWORD
-        tokenTtlHours: 12
+- id: web-auth
+  config:
+    passwordFile: /home/you/.config/dsh/web-auth.password
+    tokenTtlHours: 168
 ```
+
+> 不要同时又用仓库根的 `cordis.patch.yml` 的 `insert` 行挂它：两边都挂就是同一个插件装两遍，
+> 插件树会因重复注册启动失败。旧的 `insert` 挂法只在“只用集合 patch、不把包加进
+> `dsh.profile.bundles`”时保留。
 
 ## 配置
 
@@ -74,8 +76,8 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 | 官方 index 握手 | 非回环 index 请求在**宿主自己的判定**（`connection.requestRejection`）返回 401 时补上官方启动 token，让宿主自行种下浏览器 cookie；判定通过则原样放行（不多一次跳转，也不会成环）。因此浏览器里留着失效的 `dsh-auth-*` cookie（异 authority／端口、或密钥已轮换）时能自动恢复，而不是永久停在官方那句 401 原文上 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
-| 插件页卡片 | 左侧「插件」页（与官方 终端 / Agent 循环 / 子智能体 / 网页搜索 同组）的「访问认证」卡片：改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
-| 远程打开配置文件 | 遮罩官方「打开配置文件」按钮：headless 服务器上改为模态框查看/编辑 profile patch（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时仍走官方原生打开 |
+| 插件页卡片 | 「插件」页 → 已安装 → `@henlii/dsh-web-auth` 详情页里的「访问认证」区块：改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
+| 远程打开配置文件 | 遮罩官方「打开配置文件」按钮：点开一律在浏览器里弹出模态框查看/编辑 profile patch（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时，模态框里多一个「在服务器本机打开」（远程访客看不到服务器桌面，所以不作默认行为） |
 
 ## 安全边界
 

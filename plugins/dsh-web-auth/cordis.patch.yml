@@ -1,0 +1,21 @@
+# dsh bundle patch — the layer this package contributes when it is selected in a
+# profile's `dsh.profile.bundles` (installed through `dsh plugin --profile web
+# add`, or by listing the package there by hand).
+#
+# Row id `web-auth` is the mount point a deployment overrides from its own
+# profile `cordis.patch.yml`:
+#
+#   - id: web-auth
+#     config:
+#       passwordFile: /home/you/.config/dsh/web-auth.password
+#
+# A profile that mounts this plugin by its own `insert` line instead (the
+# pre-bundle install shape) must drop that line: two mounts mean two Node
+# halves and a failed boot.
+- insert:
+    - id: web-auth
+      name: '@henlii/dsh-web-auth'
+      config:
+        # 访问密码：passwordFile 优先（改完即生效），这里的 password 是回退值。
+        password: !!js process.env.DSH_WEB_AUTH_PASSWORD
+        tokenTtlHours: 12

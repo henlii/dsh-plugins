@@ -9,9 +9,10 @@
 // Slot registration: it must be visible even while the shell is still booting
 // and its API calls are 401ing, so it is appended straight to document.body.
 //
-// Settings card: contributes the "访问认证" card to the main Plugins page
-// (plugins.item) so the deployment can see the auth status and how to change
-// the password, next to the other plugin configuration pages.
+// Settings card: contributes the "访问认证" section to this plugin's own page
+// under Plugins → Installed (plugins.detail.section), next to the configuration
+// the official page renders from the Host form. The section stays inert for
+// every other subject.
 window.__ModuleLoader__.load({
 	id: "@henlii/dsh-web-auth",
 	factory: (require) => {
@@ -20,6 +21,8 @@ window.__ModuleLoader__.load({
 		var react = require("react");
 
 		const name = "dsh-web-auth-client";
+		// 本插件包名：详情页只有这一个 subject 需要渲染。
+		const PACKAGE_NAME = "@henlii/dsh-web-auth";
 		// 只声明 0.1.7 客户端确实存在的服务。configForms / remote.settings 由
 		// 下面 ctx.inject 延迟取用（装载顺序不确定，声明在 inject 里会一直 pending）。
 		const inject = ["slots"];
@@ -59,7 +62,7 @@ window.__ModuleLoader__.load({
 			ta.remove();
 		}
 
-		function SettingsDocumentModal({ doc, onClose, onCopy, copied, onDownload, onSave, saving, saveError }) {
+		function SettingsDocumentModal({ doc, onClose, onCopy, copied, onDownload, onSave, saving, saveError, canOpenNative, onOpenNative, openNativeError }) {
 			const [draft, setDraft] = react.useState(doc.content);
 			react.useEffect(() => {
 				const onKeyDown = (e) => {
@@ -112,6 +115,7 @@ window.__ModuleLoader__.load({
 						}
 					}),
 					saveError ? react.createElement("p", { role: "alert", style: { margin: 0, color: "#c0392b", fontSize: 12 } }, saveError) : null,
+					openNativeError ? react.createElement("p", { role: "alert", style: { margin: 0, color: "#c0392b", fontSize: 12 } }, openNativeError) : null,
 					react.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
 						react.createElement("button", {
 							type: "button", onClick: onCopy,
@@ -121,6 +125,12 @@ window.__ModuleLoader__.load({
 							type: "button", onClick: onDownload,
 							style: { padding: "6px 12px", border: "1px solid #d4d9e0", borderRadius: 8, background: "#fff", color: "#1c2024", font: "inherit", cursor: "pointer" }
 						}, "下载文件"),
+						// 有桌面打开器的宿主（例如就坐在服务器前面）可以交给本机程序打开，
+						// 远程浏览器里它只是多余的一个按钮。
+						canOpenNative ? react.createElement("button", {
+							type: "button", onClick: onOpenNative,
+							style: { padding: "6px 12px", border: "1px solid #d4d9e0", borderRadius: 8, background: "#fff", color: "#1c2024", font: "inherit", cursor: "pointer" }
+						}, "在服务器本机打开") : null,
 						react.createElement("span", { style: { flex: 1 } }),
 						react.createElement("button", {
 							type: "button", disabled: saving || !dirty, onClick: () => onSave(draft),
@@ -139,6 +149,8 @@ window.__ModuleLoader__.load({
 			const [copied, setCopied] = react.useState(false);
 			const [saving, setSaving] = react.useState(false);
 			const [saveError, setSaveError] = react.useState(null);
+			const [canOpenNative, setCanOpenNative] = react.useState(false);
+			const [openNativeError, setOpenNativeError] = react.useState(null);
 			const snap = react.useSyncExternalStore(
 				(cb) => describe.subscribe(cb),
 				() => describe.getSnapshot()
@@ -146,9 +158,11 @@ window.__ModuleLoader__.load({
 			react.useEffect(() => { void describe.ensure(); }, [describe]);
 			const hasDocument = snap.view !== void 0 && snap.view.hasDocument;
 
+			// 一律在浏览器里打开：宿主能原生打开也只是一条额外选项（“在服务器本机打开”），
+			// 因为远程访客看不到服务器桌面（以前这里反而是默认路径，于是点了像没反应）。
 			const open = () => {
 				if (busy) return;
-				setBusy(true); setError(null); setSaveError(null);
+				setBusy(true); setError(null); setSaveError(null); setOpenNativeError(null);
 				fetch("/api/dsh-web-auth/settings-document", { credentials: "same-origin" })
 					.then((res) => res.json().catch(() => ({})))
 					.then((data) => {
@@ -156,19 +170,18 @@ window.__ModuleLoader__.load({
 							setError((data && data.error) || "无法读取配置文件");
 							return;
 						}
-						if (data.canOpenNative) {
-							// 宿主有桌面打开器：走官方 RPC（本机回环场景）。
-							return openNative().then((r) => {
-								if (!(r && r.ok)) {
-									setError((r && r.error && r.error.message) || "无法打开配置文件");
-								}
-							});
-						}
+						setCanOpenNative(Boolean(data.canOpenNative));
 						setDoc({ path: data.path, content: data.content });
 						setCopied(false);
 					})
 					.catch((err) => setError(err instanceof Error && err.message.length > 0 ? err.message : "无法连接服务器"))
 					.finally(() => setBusy(false));
+			};
+			const openOnHost = () => {
+				setOpenNativeError(null);
+				openNative().then((r) => {
+					if (!(r && r.ok)) setOpenNativeError((r && r.error && r.error.message) || "无法打开配置文件");
+				}).catch((err) => setOpenNativeError(err instanceof Error && err.message.length > 0 ? err.message : "无法打开配置文件"));
 			};
 			const save = (content) => {
 				if (saving || !doc) return;
@@ -216,7 +229,7 @@ window.__ModuleLoader__.load({
 				error ? react.createElement("span", { role: "alert", style: { color: "#c0392b", fontSize: 12, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, error) : null,
 				doc ? react.createElement(SettingsDocumentModal, {
 					doc, onClose: () => setDoc(null), onCopy: copy, copied, onDownload: download,
-					onSave: save, saving, saveError
+					onSave: save, saving, saveError, canOpenNative, onOpenNative: openOnHost, openNativeError
 				}) : null);
 		}
 
@@ -226,9 +239,7 @@ window.__ModuleLoader__.load({
 			catch { return String(ms); }
 		}
 
-		function AuthInfoCard(props) {
-			// 「插件」页列表用 summary 视图只取一句描述，点进去才渲染整张卡片。
-			if (props !== void 0 && props.view === "summary") return "内网/LAN 访问密码认证与信任插件";
+		function AuthInfoCard() {
 			const [info, setInfo] = react.useState(null);
 			const [failed, setFailed] = react.useState(false);
 			const [sessions, setSessions] = react.useState([]);
@@ -449,14 +460,18 @@ window.__ModuleLoader__.load({
 				}
 			})();
 
-			// 「插件」页（主界面左侧导航）的配置卡片：认证状态、改访问密码、列出已登录
-			// 会话。0.1.7 把插件配置统一收到这个页面，槽子由 dsh-client-ui-plugin-manager
-			// 声明（main 槽 key "plugins" 的子槽），注册它即可出现在卡片列表里。
+			// 「插件」页 → 已安装 → @henlii/dsh-web-auth 详情页里的一块：认证状态、改访问
+			// 密码、已登录会话。宿主把 plugins.detail.section 渲染进每个详情页（每个条目
+			// 都拿到 subject），所以这里只认自己那个包，其余返回 null。
 			const slots = ctx.get("slots");
 			if (slots !== void 0) {
-				slots.inject("plugins.item", () => slots.register(
-					{ name: "plugins.item", id: "dsh-web-auth", order: 40, label: () => "访问认证" },
-					(props) => react.createElement(AuthInfoCard, props)
+				slots.inject("plugins.detail.section", () => slots.register(
+					{ name: "plugins.detail.section", id: "dsh-web-auth", order: 10 },
+					(props) => {
+						const pkg = props !== void 0 && props.subject !== void 0 ? props.subject.pkg : void 0;
+						if (pkg === void 0 || pkg.name !== PACKAGE_NAME) return null;
+						return react.createElement(AuthInfoCard, props);
+					}
 				));
 			}
 
