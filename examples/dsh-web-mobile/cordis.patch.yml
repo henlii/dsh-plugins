@@ -1,0 +1,12 @@
+# dsh-web-mobile 独立安装示例
+#
+# 1) 安装依赖包：
+#    dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-web-mobile
+#    （包自带 dsh.bundle.patch，CLI 会顺带把它加进 dsh.profile.bundles，装完即挂载）
+# 2) 只有不把包加进 dsh.profile.bundles 的手动场景，才需要把下面这行并入
+#    $DSH_HOME/profiles/web/cordis.patch.yml（配置 HMR 实时生效）。
+#    注意与 1) 二选一：两边都挂就是同一个插件装两遍。
+
+- insert:
+    - id: web-mobile
+      name: 'dsh-web-mobile'

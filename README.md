@@ -18,6 +18,7 @@
 | 插件 | 功能 |
 |------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网 / LAN / Tailscale 访问的密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置、凭据等特权页在内网可用 |
+| [dsh-web-mobile](plugins/dsh-web-mobile/) | 手机端 UI：去掉常驻细轨，左右侧栏改覆盖层抽屉，设置改成两级页（列表 → 详情），处理安全区与 16px 输入框；桌面布局不变 |
 
 ## 安装
 
@@ -69,7 +70,7 @@ dsh-plugins/
         ├── package.json     # main/exports + dsh.bundle / dsh.client 声明
         ├── cordis.patch.yml # bundle 挂载层（insert 自己那一行）
         ├── src/index.js     # Node half（cordis entry）
-        ├── src/client.js    # Client half（__ModuleLoader__.load）
+        ├── src/client.js    # Client half（__ModuleLoader__.load；纯客户端插件可省）
         └── README.md        # 该插件文档
 ```
 

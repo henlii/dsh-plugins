@@ -1,0 +1,9 @@
+# dsh bundle patch — the layer this package contributes when it is selected in a
+# profile's `dsh.profile.bundles` (installed through `dsh plugin --profile web
+# add`).
+#
+# A profile that mounts this plugin by its own `insert` line instead must drop
+# that line: two mounts mean two host halves and a failed boot.
+- insert:
+    - id: web-mobile
+      name: '@henlii/dsh-web-mobile'

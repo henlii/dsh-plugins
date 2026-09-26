@@ -6,7 +6,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "check": "node --check plugins/dsh-web-auth/src/index.js && node --check plugins/dsh-web-auth/src/client.js",
+    "check": "node --check plugins/dsh-web-auth/src/index.js && node --check plugins/dsh-web-auth/src/client.js && node --check plugins/dsh-web-mobile/src/index.js && node --check plugins/dsh-web-mobile/src/client.js",
     "install:all": "dsh web --patch ./cordis.patch.yml"
   }
 }
