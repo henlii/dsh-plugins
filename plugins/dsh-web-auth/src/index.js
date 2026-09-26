@@ -156,6 +156,45 @@ function normalizePrivilegedRequest(req, _port) {
   req.headers["sec-fetch-site"] = "same-origin";
 }
 
+// Present an authenticated non-loopback request as a loopback one, for routes
+// listed in `trustLoopbackPaths`. Third-party plugins fence their own routes
+// with "loopback socket address AND loopback Host header" (or "a paired device
+// cookie", which needs a pairing plugin this deployment does not run); a LAN
+// browser fails that fence even after passing the password gate. Rewriting the
+// Host/Origin headers plus the socket's peer address lets those routes run for
+// the same people the password already admits — the trust level does not go up:
+// an authenticated LAN session can already edit settings and credentials.
+//
+// The peer address is shadowed as an own property of THIS request's socket and
+// dropped again when the response ends: keep-alive reuses the socket, and a
+// later request on it must be judged on its real peer.
+function presentAsLoopback(req, res, port) {
+  const authority = `127.0.0.1:${port}`;
+  const socket = req.socket;
+  if (socket !== null && socket !== void 0) {
+    const restore = () => {
+      try {
+        delete socket.remoteAddress;
+      } catch {
+        /* a non-configurable shadow would be a host change; nothing to undo */
+      }
+    };
+    try {
+      Object.defineProperty(socket, "remoteAddress", { value: "127.0.0.1", configurable: true });
+      res.once("finish", restore);
+      res.once("close", restore);
+    } catch {
+      /* an address we cannot shadow leaves the plugin's own fence in charge */
+    }
+  }
+  req.headers.host = authority;
+  req.headers.origin = `http://${authority}`;
+  if (typeof req.headers.referer === "string") {
+    req.headers.referer = req.headers.referer.replace(/^https?:\/\/[^/]+/i, `http://${authority}`);
+  }
+  req.headers["sec-fetch-site"] = "same-origin";
+}
+
 function readCookieValue(req, cookieName) {
   const cookie = req.headers.cookie;
   if (typeof cookie !== "string") return null;
@@ -551,6 +590,17 @@ function apply(ctx, config) {
     sendJson(res, 404, { error: "not found" });
   };
 
+  // Paths whose routes carry their own loopback-only fence (third-party plugins
+  // such as the skill center). An authenticated LAN peer is presented as
+  // loopback on exactly these prefixes; empty by default, so the fence stands.
+  const trustLoopbackPaths = (Array.isArray(cfg.trustLoopbackPaths) ? cfg.trustLoopbackPaths : [])
+    .filter((prefix) => typeof prefix === "string" && prefix.startsWith("/"))
+    .map((prefix) => (prefix.endsWith("/") ? prefix.slice(0, -1) : prefix))
+    .filter((prefix) => prefix.length > 0);
+
+  const isTrustedLoopbackPath = (pathname) =>
+    trustLoopbackPaths.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
   const authorizeHttp = async (req, res, next) => {
     const pathname = pathnameOf(req);
     if (pathname.startsWith(AUTH_PREFIX)) {
@@ -569,7 +619,8 @@ function apply(ctx, config) {
       sendJson(res, 401, { error: "unauthorized" });
       return;
     }
-    normalizePrivilegedRequest(req, port);
+    if (isTrustedLoopbackPath(pathname)) presentAsLoopback(req, res, port);
+    else normalizePrivilegedRequest(req, port);
     await next(req, res);
   };
 
@@ -731,6 +782,25 @@ function apply(ctx, config) {
     apiEntry.handler = (req, res) => authorizeHttp(req, res, original);
     httpWrapped.push([apiEntry, original]);
   }
+
+  // Third-party bundle layers register their own /api routes while the profile
+  // composes, i.e. BEFORE this row applies and patches `register` — those never
+  // pass through the interception below. Sweep both live route tables once so
+  // their routes sit behind the same password gate (and so
+  // `trustLoopbackPaths` can reach them).
+  const sweepApiRoutes = () => {
+    for (const table of [webServer.exact, webServer.prefixes]) {
+      if (table === void 0 || typeof table.values !== "function") continue;
+      for (const route of [...table.values()]) {
+        if (!isApiRoute(route) || typeof route.handler !== "function") continue;
+        if (httpWrapped.some(([wrapped]) => wrapped === route)) continue;
+        const original = route.handler;
+        route.handler = (req, res) => authorizeHttp(req, res, original);
+        httpWrapped.push([route, original]);
+      }
+    }
+  };
+  sweepApiRoutes();
 
   // Serve a patched dsh-client-connection bundle whose client-side
   // isLoopbackHostname also recognizes the deployment's LAN/Tailscale hosts,

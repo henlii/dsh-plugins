@@ -63,6 +63,8 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | `tokenTtlHours` | `12` | 会话 token 有效期（小时） |
 | `tokenFile` | `/root/.config/dsh/web-auth-tokens.json` | 已签发 token 持久化文件（服务重启不踢下线） |
 | `lanHosts` | 自动从 `webRuntime.trustedHosts` 派生 | 额外视为回环的 LAN/Tailscale 主机名（客户端 `isLoopback` 补丁用） |
+| `trustLoopbackPaths` | `[]` | 前缀列表（如 `/api/dsh-skill-explorer`）：密码认证通过的 LAN 请求在这些路径上呈现回环外观，供第三方「仅限回环」路由使用 |
+| `extraProtectedPaths` | `[]` | 额外拉进密码门的非 `/api` 路径（如第三方插件在 `/vision-bridge/rpc` 这类路径上放敏感接口） |
 
 ## 能力
 
@@ -76,6 +78,8 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | 官方 index 握手 | 非回环 index 请求在**宿主自己的判定**（`connection.requestRejection`）返回 401 时补上官方启动 token，让宿主自行种下浏览器 cookie；判定通过则原样放行（不多一次跳转，也不会成环）。因此浏览器里留着失效的 `dsh-auth-*` cookie（异 authority／端口、或密钥已轮换）时能自动恢复，而不是永久停在官方那句 401 原文上 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
+| 路由清扫 | profile 组装时先于本行注册的第三方 `/api` 路由也会被纳进密码门（它们不经过被接管的 `webServer.register`） |
+| 受信路径回环外观 | `trustLoopbackPaths` 里列出的前缀，对已认证 LAN 会话呈现回环外观（Host / Origin / socket 对端地址），第三方「仅限回环」插件（如技能中心）在内网可用；socket 影子在响应结束时立即摘掉 |
 | 插件页卡片 | 「插件」页 → 已安装 → `@henlii/dsh-web-auth` 详情页里的「访问认证」区块：改访问密码、列出已登录会话（地址/时间）并删除某条登录 |
 | 远程打开配置文件 | 遮罩官方「打开配置文件」按钮：点开一律在浏览器里弹出模态框查看/编辑 profile patch（复制/下载/保存，Ctrl+S）；宿主有桌面打开器时，模态框里多一个「在服务器本机打开」（远程访客看不到服务器桌面，所以不作默认行为） |
 
@@ -85,7 +89,9 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 - 静态资源（HTML/JS/CSS）不设密码门槛（页面本身无数据），`/api` 与 WebSocket 全在密码之后；
 - 未通过密码认证的远程访客只拿到独立登录页（插件自身的 token 只在认证通过后签发）；官方启动 token 仅在宿主判定为未认证的 index 握手时补一次，不预先发放给访客；
 - 回环同样需要官方浏览器 cookie（官方设计），本插件只在其上增加一层密码门；
-- 密码是部署级秘密（环境变量/0600 文件），不写入 GUI 明文编辑。
+- 密码是部署级秘密（环境变量/0600 文件），不写入 GUI 明文编辑；
+- `trustLoopbackPaths` 只对**已认证**会话生效，且只影响列出的前缀；未带 token 的请求仍然 401。它不提升信任级别：已登录的 LAN 会话本来就能改 settings/凭据，这里只是让那些自带回环围栏的第三方路由也接受同一批人；
+- socket 对端地址是逐请求影子：响应结束（`finish`/`close`）立即摘掉，keep-alive 后续请求按真实对端判定（已实测同一连接上紧随其后的无 cookie 请求仍为 401）。
 
 ## 插件管理
 
