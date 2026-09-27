@@ -44,11 +44,12 @@ window.__ModuleLoader__.load({
 
 const TABLE_CSS = `
 /* 表格：唯一一条不限宽度的规则。
-   宿主给 ≥4 列的表格容器写死 overflow-x:hidden（桌面靠 :hover/:focus-visible 才切成 scroll，
-   触摸设备没有 hover），实测 1600px 下有 154px 内容被裁掉且滚不动；<4 列的表格没有滚动容器。
-   只把 overflow-x 改成 auto —— 宽度、位置、内边距全部交给宿主：容器的宽度是为宽表格特意放宽的
-   （比正文列宽，并向左溢出与正文对齐），自己写 max-width 会把它压回正文宽度，表格就错位了。 */
-[data-conversation-scroll] div:has(>table){overflow-x:auto!important;overscroll-behavior-x:contain}
+   宿主给 ≥4 列的宽表格容器做了"左右外扩"（width:100%+lead+spare、margin-left:-lead、
+   padding-left:lead，把表格伸进正文列两侧的空白，同时让首列仍与正文对齐），并且把它的
+   overflow-x 写死 hidden（桌面靠 hover 才切 scroll，触摸设备根本没有 hover）。
+   本插件取消这个外扩，让容器正好等于正文列宽，再改成可横滚：表格和滚动条都留在会话区内，
+   超宽时横着滚。md-table-wide 是宿主写死的字面类名（不是 CSS Module 哈希），可以直接命中。 */
+[data-conversation-scroll] .md-table-wide{width:100%!important;max-width:100%!important;margin-left:0!important;padding-left:0!important;overflow-x:auto!important;overscroll-behavior-x:contain}
 `;
 
 		const CSS = `
