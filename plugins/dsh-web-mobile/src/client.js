@@ -14,9 +14,13 @@
 //   2. Settings becomes two levels: the modal's nav is a full-width list, and
 //      picking a section swaps to the section page with a back button, instead
 //      of a nav column squeezing the content into one character per line.
-//   3. Chat spacing: 16px inputs (iOS zoom guard), safe-area padding, and a
-//      stable 100svh frame: 100dvh resizes as the browser chrome hides on
-//      scroll, which drags the composer up and down with it.
+//   3. Chat spacing: 16px inputs (iOS zoom guard) and safe-area padding.
+//
+// It deliberately does NOT touch the document's scrolling model: the shell's
+// narrow layout scrolls the document and keeps the composer stuck to the
+// viewport bottom with `position: sticky`. Locking html/body (or giving the
+// frame its own viewport height) turns that sticky into a static element that
+// scrolls away with the transcript — the composer then drifts off screen.
 //
 // Nothing here imports another plugin and no service is required: `ctx.layout`
 // is read when present, and every element is found structurally, not by module
@@ -38,23 +42,19 @@ window.__ModuleLoader__.load({
 		// already collapsed but the drawer chrome is not there yet.
 		const NARROW_MAX = 1024;
 
+const TABLE_CSS = `
+/* 表格：唯一一条不限宽度的规则。宿主把 ≥4 列的表格容器写死 overflow-x:hidden（只有
+   :hover/:focus-visible 才切成 scroll），实测 1600px 下就有 154px 内容被裁掉且滚不动，
+   触摸设备更没有 hover。只把 overflow-x 改成 auto：内容没超宽时不会多出滚动条。 */
+[data-conversation-scroll] div:has(>table){max-width:100%!important;overflow-x:auto!important;overscroll-behavior-x:contain}
+`;
+
 		const CSS = `
-html[data-dshm-narrow],html[data-dshm-narrow] body{overflow:hidden;height:100%;overscroll-behavior:none}
-html[data-dshm-narrow] [class$="frame"]{height:100dvh;height:100svh;box-sizing:border-box}
 /* 收起：第一轨已被归零，列自身 overflow:hidden，栏内容自然不可见。这里不能用 display:none —— 网格项一旦消失，后面的列会左移一轨，把对话挤进 0px。 */
 html[data-dshm-narrow] [class$="frame"] [class$="sidebarCol"]{overflow:hidden}
 /* 展开：抽屉挂在列的内层（列本身留在网格里，否则对话会掉进 0px 轨）。 */
 html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div{display:block!important;position:fixed;inset:0 auto 0 0;width:min(20rem,86vw);height:100dvh;z-index:41;box-sizing:border-box;overflow:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 0 32px rgba(0,0,0,.28)}
-html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div>div{width:100%!important;max-width:100%!important}/* 外壳在窄屏把会话区（viewArea）压成视口高，输入框是它的下一个兄弟且 position:sticky，
-   sticky 的位移范围被限制在滚动容器的内容盒内 → 往下滚就跟着内容跑掉（实测 top=-2177）。
-   宽屏不会：会话区是内容高，输入框静态位置本来就在内容末尾。
-   这里在窄屏把它钉在视口底部，并把实测高度写进 --dshm-composer-h 给滚动区留位。 */
-html[data-dshm-narrow] [class$="scrollBody"]>[class$="composerSeat"][data-dshm-pinned]{position:fixed;left:0;right:0;bottom:0;z-index:8}
-html[data-dshm-narrow] [class$="scrollBody"][data-dshm-composer-pad]{padding-bottom:var(--dshm-composer-h,0px)}
-/* 窄屏：表格一律放进可横滚的容器。
-   宿主对 ≥4 列的表格用 overflow-x:hidden（桌面靠 hover / :focus-visible 才露滚动条），
-   触摸设备没有 hover；<4 列的表格则完全没有滚动容器，单元格一被撑宽就直接顶出会话列。 */
-html[data-dshm-narrow] [data-conversation-scroll] div:has(>table){max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div>div{width:100%!important;max-width:100%!important}
 #dshm-mask{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .16s ease}
 html[data-dshm-narrow][data-dshm-left="open"] #dshm-mask{opacity:1;pointer-events:auto}
 #dshm-menu{appearance:none;flex:none;width:34px;height:34px;margin:0 2px 0 0;padding:0;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
@@ -90,6 +90,12 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 			const style = document.createElement("style");
 			style.dataset.dshmStyle = "";
 			style.textContent = CSS;
+
+			// Kept outside the narrow-gated sheet: a table that cannot be scrolled is
+			// wrong at every width, and the narrow sheet is removed on a wide window.
+			const tableStyle = document.createElement("style");
+			tableStyle.dataset.dshmTables = "";
+			tableStyle.textContent = TABLE_CSS;
 
 			// The shell frame is a three-track grid (sidebar | center | rightbar).
 			// Collapsing it to a single column moves the rightbar cell into a second
@@ -210,36 +216,6 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 				}
 			};
 
-			// ── 窄屏输入框钉底（见上面 CSS 注释）────────────────────────────
-			const pinnedSeat = () => document.querySelector('[class$="scrollBody"] > [class$="composerSeat"]');
-
-			let composerWatched = null;
-			const composerObserver = typeof ResizeObserver === "function"
-				? new ResizeObserver(() => {
-					const seat = pinnedSeat();
-					if (seat !== null && seat.hasAttribute("data-dshm-pinned")) {
-						document.documentElement.style.setProperty("--dshm-composer-h", `${Math.ceil(seat.getBoundingClientRect().height)}px`);
-					}
-				})
-				: null;
-
-			const syncComposer = () => {
-				const seat = pinnedSeat();
-				if (seat === null) return;
-				// 外壳的 active 阶段 = 会话已展开（无论有没有消息）。留位用的 padding 会让
-				// 滚动高度变大，所以这里不能拿 scrollHeight 当判据（会形成自我维持的循环）。
-				const phase = seat.closest("[data-phase]")?.getAttribute("data-phase");
-				const pin = phase === "active";
-				seat.toggleAttribute("data-dshm-pinned", pin);
-				seat.parentElement?.toggleAttribute("data-dshm-composer-pad", pin);
-				if (pin) document.documentElement.style.setProperty("--dshm-composer-h", `${Math.ceil(seat.getBoundingClientRect().height)}px`);
-				if (composerObserver !== null && composerWatched !== seat) {
-					composerObserver.disconnect();
-					composerObserver.observe(seat);
-					composerWatched = seat;
-				}
-			};
-
 			// ── 设置：一级列表 / 二级页面 ───────────────────────────────────
 			const settingsPanels = new Set();
 
@@ -326,14 +302,12 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 					annotateSettings();
 				} else {
 					if (root.hasAttribute("data-dshm-narrow")) root.removeAttribute("data-dshm-narrow");
-					root.style.removeProperty("--dshm-composer-h");
 					style.remove();
 					mask.remove();
 					document.getElementById("dshm-menu")?.remove();
 				}
 				applyFrameGrid();
 				syncDrawerState();
-				syncComposer();
 			};
 			const schedule = () => {
 				if (raf === 0) raf = requestAnimationFrame(sync);
@@ -353,6 +327,7 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 			window.addEventListener("orientationchange", schedule);
 
 			document.head.append(style);
+			document.head.append(tableStyle);
 			document.head.append(gridRule);
 			document.body.append(mask);
 			treeObserver.observe(document.body, { childList: true, subtree: true });
@@ -366,12 +341,11 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 					document.removeEventListener("click", onDocumentClick, true);
 					window.removeEventListener("resize", schedule);
 					window.removeEventListener("orientationchange", schedule);
-					composerObserver?.disconnect();
-					document.documentElement.style.removeProperty("--dshm-composer-h");
 					style.remove();
 					gridRule.remove();
 					mask.remove();
 					document.getElementById("dshm-menu")?.remove();
+					tableStyle.remove();
 					document.documentElement.removeAttribute("data-dshm-narrow");
 					document.documentElement.removeAttribute("data-dshm-left");
 					settingsPanels.clear();
