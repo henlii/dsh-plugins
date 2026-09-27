@@ -1,19 +1,22 @@
-// dsh-web-mobile client half — phone chrome for the shipped dsh web shell.
+// dsh-web-mobile client half — narrow-viewport chrome for the shipped dsh web shell.
 //
-// Phone only (desktop keeps the official three-column layout untouched). Three
-// things happen here:
+// Narrow viewports only (width < the shell's own 1024 auto-collapse point; a
+// wide window keeps the official three-column layout untouched):
 //
-//   1. Sidebars become overlay drawers. The shell collapses its sidebar to a
-//      52px rail; on a phone that rail eats 14% of the width forever, so the
-//      rail is hidden and the expanded panel is presented as a fixed overlay
-//      with a mask. The shell already publishes the state we need on the frame
-//      element (`data-sidebar-collapsed` / `data-rightbar-collapsed`), so the
-//      drawer state is mirrored, never owned: collapsing the panel closes the
-//      drawer from the shell's own side too.
+//   1. The left sidebar becomes an overlay drawer. The shell collapses it to a
+//      52px rail below 1024px; that rail eats 14% of a phone width forever, so
+//      it is hidden and the expanded panel is presented as a fixed overlay with
+//      a mask. The shell publishes the state we need on the frame element
+//      (`data-sidebar-collapsed`), so the drawer state is mirrored, never
+//      owned: collapsing the panel closes the drawer from the shell's side too.
+//      The right column is deliberately left alone — the shell already turns it
+//      into a full-width drawer below its own 768px presentation threshold.
 //   2. Settings becomes two levels: the modal's nav is a full-width list, and
 //      picking a section swaps to the section page with a back button, instead
 //      of a nav column squeezing the content into one character per line.
-//   3. Chat spacing: 16px inputs (iOS zoom guard), safe-area padding, 100dvh.
+//   3. Chat spacing: 16px inputs (iOS zoom guard), safe-area padding, and a
+//      stable 100svh frame: 100dvh resizes as the browser chrome hides on
+//      scroll, which drags the composer up and down with it.
 //
 // Nothing here imports another plugin and no service is required: `ctx.layout`
 // is read when present, and every element is found structurally, not by module
@@ -27,42 +30,43 @@ window.__ModuleLoader__.load({
 		const name = "dsh-web-mobile-client";
 		const inject = [];
 
-		// Phone heuristics: always at a phone width, otherwise only for a coarse
-		// pointer (a tablet-width touch device still wants the drawer).
-		const PHONE_ALWAYS = 640;
-		const PHONE_NEVER = 1024;
-		const TOUCH_MQ = "(hover: none) and (pointer: coarse)";
+		// Narrow-viewport threshold. The shell's own layout constant is
+		// SIDEBAR_AUTO_COLLAPSE = 1024 (`ui-layout`): below it the sidebar
+		// auto-collapses to the 52px rail and expanding it pushes the conversation.
+		// Matching that number — instead of a phone-only heuristic — is what keeps
+		// a single switch: resizing past it must not show a state where the rail is
+		// already collapsed but the drawer chrome is not there yet.
+		const NARROW_MAX = 1024;
 
 		const CSS = `
-html[data-dshm-phone] [class$="frame"]{grid-template-columns:minmax(0,1fr)!important;height:100dvh;box-sizing:border-box}
-html[data-dshm-phone] [data-sidebar-collapsed] [class$="sidebarCol"]{display:none!important}html[data-dshm-phone][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]{display:block!important;position:fixed;inset:0 auto 0 0;width:min(20rem,86vw)!important;height:100dvh;z-index:41;box-sizing:border-box;overflow:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 0 32px rgba(0,0,0,.28)}
-html[data-dshm-phone][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div>div{width:100%!important;max-width:100%!important}
-html[data-dshm-phone] [class$="rightbarCol"]{display:none!important}
-html[data-dshm-phone][data-dshm-right="open"] [class$="rightbarCol"]{display:block!important;position:fixed;inset:0;width:100vw!important;height:100dvh;z-index:41;box-sizing:border-box;overflow:hidden;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--dsw-alias-bg-layer-3,#fff)}
-#dshm-mask{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .16s ease}
-html[data-dshm-phone][data-dshm-left="open"] #dshm-mask,html[data-dshm-phone][data-dshm-right="open"] #dshm-mask{opacity:1;pointer-events:auto}
+html[data-dshm-narrow],html[data-dshm-narrow] body{overflow:hidden;height:100%;overscroll-behavior:none}
+html[data-dshm-narrow] [class$="frame"]{height:100dvh;height:100svh;box-sizing:border-box}
+/* 收起：第一轨已被归零，列自身 overflow:hidden，栏内容自然不可见。这里不能用 display:none —— 网格项一旦消失，后面的列会左移一轨，把对话挤进 0px。 */
+html[data-dshm-narrow] [class$="frame"] [class$="sidebarCol"]{overflow:hidden}
+/* 展开：抽屉挂在列的内层（列本身留在网格里，否则对话会掉进 0px 轨）。 */
+html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div{display:block!important;position:fixed;inset:0 auto 0 0;width:min(20rem,86vw);height:100dvh;z-index:41;box-sizing:border-box;overflow:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 0 32px rgba(0,0,0,.28)}
+html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div>div{width:100%!important;max-width:100%!important}#dshm-mask{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .16s ease}
+html[data-dshm-narrow][data-dshm-left="open"] #dshm-mask{opacity:1;pointer-events:auto}
 #dshm-menu{appearance:none;flex:none;width:34px;height:34px;margin:0 2px 0 0;padding:0;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 #dshm-menu:active{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
 #dshm-menu.dshm-float{position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);left:8px;z-index:30;background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 1px 6px rgba(0,0,0,.14)}
-html[data-dshm-phone] textarea,html[data-dshm-phone] input{font-size:16px!important}
-html[data-dshm-phone] [role="dialog"]:not(.dshm-settings){max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important}
-html[data-dshm-phone] [data-radix-popper-content-wrapper]{max-width:calc(100vw - 16px)!important}
-html[data-dshm-phone] .dshm-settings{flex-direction:column!important}
-html[data-dshm-phone] .dshm-settings .dshm-nav{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;overflow:auto;border-right:0!important;padding-top:calc(env(safe-area-inset-top,0px) + 4px);box-sizing:border-box}
-html[data-dshm-phone] .dshm-settings .dshm-content{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;padding-top:env(safe-area-inset-top,0px);box-sizing:border-box}
-html[data-dshm-phone] .dshm-settings .dshm-navList{width:100%!important}
-html[data-dshm-phone] .dshm-settings .dshm-navCell{width:100%!important;max-width:none!important}
-html[data-dshm-phone] .dshm-settings[data-dshm-view="list"] .dshm-content{display:none!important}
-html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:none!important}
+html[data-dshm-narrow] textarea,html[data-dshm-narrow] input{font-size:16px!important}
+html[data-dshm-narrow] [role="dialog"]:not(.dshm-settings){max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important}
+html[data-dshm-narrow] [data-radix-popper-content-wrapper]{max-width:calc(100vw - 16px)!important}
+html[data-dshm-narrow] .dshm-settings{flex-direction:column!important}
+html[data-dshm-narrow] .dshm-settings .dshm-nav{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;overflow:auto;border-right:0!important;padding-top:calc(env(safe-area-inset-top,0px) + 4px);box-sizing:border-box}
+html[data-dshm-narrow] .dshm-settings .dshm-content{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;padding-top:env(safe-area-inset-top,0px);box-sizing:border-box}
+html[data-dshm-narrow] .dshm-settings .dshm-navList{width:100%!important}
+html[data-dshm-narrow] .dshm-settings .dshm-navCell{width:100%!important;max-width:none!important}
+html[data-dshm-narrow] .dshm-settings[data-dshm-view="list"] .dshm-content{display:none!important}
+html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:none!important}
 .dshm-navClose,.dshm-back{appearance:none;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);font-size:17px;line-height:1;cursor:pointer}
 .dshm-navClose{margin-left:auto}
 .dshm-back{margin:0 4px 0 0}
 .dshm-navClose:active,.dshm-back:active{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
 `;
 
-		const isPhone = () =>
-			window.innerWidth <= PHONE_ALWAYS ||
-			(window.innerWidth <= PHONE_NEVER && window.matchMedia(TOUCH_MQ).matches);
+		const isNarrow = () => window.innerWidth < NARROW_MAX;
 
 		const MENU_ICON =
 			'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
@@ -76,6 +80,43 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 			const style = document.createElement("style");
 			style.dataset.dshmStyle = "";
 			style.textContent = CSS;
+
+			// The shell frame is a three-track grid (sidebar | center | rightbar).
+			// Collapsing it to a single column moves the rightbar cell into a second
+			// grid row, and the shell anchors its right panel to that cell with
+			// `position:absolute` — the panel then parks below the fold. So only the
+			// FIRST track is zeroed (the rail is what we are reclaiming); the center
+			// and rightbar tracks keep exactly the values the shell wrote.
+			const gridRule = document.createElement("style");
+			gridRule.dataset.dshmGrid = "";
+
+			const splitTracks = (value) => {
+				const tracks = [];
+				let depth = 0;
+				let current = "";
+				for (const ch of value) {
+					if (ch === "(") depth += 1;
+					if (ch === ")") depth -= 1;
+					if (depth === 0 && ch === " ") {
+						if (current !== "") tracks.push(current);
+						current = "";
+						continue;
+					}
+					current += ch;
+				}
+				if (current !== "") tracks.push(current);
+				return tracks;
+			};
+
+			const applyFrameGrid = () => {
+				const el = frame();
+				const inline = el === null ? "" : el.style.getPropertyValue("grid-template-columns").trim();
+				const tracks = inline === "" ? [] : splitTracks(inline);
+				const next = tracks.length === 3
+					? `html[data-dshm-narrow] [class$="frame"]{grid-template-columns:0px ${tracks.slice(1).join(" ")}!important}`
+					: "";
+				if (gridRule.textContent !== next) gridRule.textContent = next;
+			};
 
 			const mask = document.createElement("div");
 			mask.id = "dshm-mask";
@@ -104,18 +145,16 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 					});
 					frameWatched = el;
 				}
+				// Only the left drawer is ours: the shell already presents the right
+				// column as a full-width drawer below its own 768px presentation
+				// threshold (`autoFullscreen`), so touching it can only break it.
 				const root = document.documentElement;
-				if (el === null || !root.hasAttribute("data-dshm-phone")) {
+				if (el === null || !root.hasAttribute("data-dshm-narrow")) {
 					root.removeAttribute("data-dshm-left");
-					root.removeAttribute("data-dshm-right");
 					return;
 				}
-				const left = el.hasAttribute("data-sidebar-collapsed") ? "closed" : "open";
-				const right = el.hasAttribute("data-rightbar-collapsed") ? "closed" : "open";
-				if (left === "open") root.setAttribute("data-dshm-left", "open");
-				else root.removeAttribute("data-dshm-left");
-				if (right === "open") root.setAttribute("data-dshm-right", "open");
-				else root.removeAttribute("data-dshm-right");
+				if (el.hasAttribute("data-sidebar-collapsed")) root.removeAttribute("data-dshm-left");
+				else root.setAttribute("data-dshm-left", "open");
 			};
 
 			const collapseSidebar = () => {
@@ -129,11 +168,6 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 				const service = layout();
 				if (service !== void 0 && typeof service.toggleSidebar === "function") service.toggleSidebar();
 				else document.querySelector('button[aria-label="打开侧边栏"]')?.click();
-			};
-			const collapseRightbar = () => {
-				const service = layout();
-				if (service !== void 0 && typeof service.closeRightbar === "function") service.closeRightbar();
-				else document.querySelector('button[aria-label="收起右侧边栏"]')?.click();
 			};
 
 			// ── 对话顶栏的 ☰ ────────────────────────────────────────────────
@@ -228,7 +262,7 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 
 			// 抽屉里点中会话 / 面板行 → 收起抽屉（跟 pidance 一致：选完就让位）。
 			const onDocumentClick = (event) => {
-				if (!document.documentElement.hasAttribute("data-dshm-phone")) return;
+				if (!document.documentElement.hasAttribute("data-dshm-narrow")) return;
 				const target = event.target instanceof Element ? event.target : null;
 				if (target === null) return;
 				const col = sidebarCol();
@@ -238,24 +272,25 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 				}
 			};
 
-			// ── phone 开关 ─────────────────────────────────────────────────
+			// ── 窄屏开关 ─────────────────────────────────────────────────
 			let raf = 0;
 			const sync = () => {
 				raf = 0;
 				const root = document.documentElement;
-				const phone = isPhone();
-				if (phone) {
-					if (!root.hasAttribute("data-dshm-phone")) root.setAttribute("data-dshm-phone", "");
+				const narrow = isNarrow();
+				if (narrow) {
+					if (!root.hasAttribute("data-dshm-narrow")) root.setAttribute("data-dshm-narrow", "");
 					if (style.parentElement === null) document.head.append(style);
 					if (mask.parentElement === null) document.body.append(mask);
 					ensureMenu();
 					annotateSettings();
 				} else {
-					if (root.hasAttribute("data-dshm-phone")) root.removeAttribute("data-dshm-phone");
+					if (root.hasAttribute("data-dshm-narrow")) root.removeAttribute("data-dshm-narrow");
 					style.remove();
 					mask.remove();
 					document.getElementById("dshm-menu")?.remove();
 				}
+				applyFrameGrid();
 				syncDrawerState();
 			};
 			const schedule = () => {
@@ -269,16 +304,14 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 
 			mask.addEventListener("click", () => {
 				collapseSidebar();
-				collapseRightbar();
 				syncDrawerState();
 			});
 			document.addEventListener("click", onDocumentClick, true);
 			window.addEventListener("resize", schedule);
 			window.addEventListener("orientationchange", schedule);
-			const touchMq = window.matchMedia(TOUCH_MQ);
-			touchMq.addEventListener("change", schedule);
 
 			document.head.append(style);
+			document.head.append(gridRule);
 			document.body.append(mask);
 			treeObserver.observe(document.body, { childList: true, subtree: true });
 			sync();
@@ -291,13 +324,12 @@ html[data-dshm-phone] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:no
 					document.removeEventListener("click", onDocumentClick, true);
 					window.removeEventListener("resize", schedule);
 					window.removeEventListener("orientationchange", schedule);
-					touchMq.removeEventListener("change", schedule);
 					style.remove();
+					gridRule.remove();
 					mask.remove();
 					document.getElementById("dshm-menu")?.remove();
-					document.documentElement.removeAttribute("data-dshm-phone");
+					document.documentElement.removeAttribute("data-dshm-narrow");
 					document.documentElement.removeAttribute("data-dshm-left");
-					document.documentElement.removeAttribute("data-dshm-right");
 					settingsPanels.clear();
 				},
 				"dsh-web-mobile: chrome cleanup"

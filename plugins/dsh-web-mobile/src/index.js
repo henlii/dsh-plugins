@@ -16,10 +16,13 @@ const HEAD = [
   '<meta name="mobile-web-app-capable" content="yes" />',
   '<meta name="apple-mobile-web-app-capable" content="yes" />',
   "<style data-dshm-critical>",
-  "@media (max-width:639.98px){",
-  '[data-sidebar-collapsed] [class$="sidebarCol"]{display:none!important}',
-  '[class$="frame"]{grid-template-columns:minmax(0,1fr)!important}',
-  '[data-sidebar-collapsed] [class$="rightbarCol"]{display:none!important}',
+  // Same threshold as the client half: the shell's own SIDEBAR_AUTO_COLLAPSE
+  // (1024) — below it the sidebar is a rail and expanding it pushes the chat.
+  "@media (max-width:1023.98px){",
+  // Zero the rail track only: the frame is a three-track grid, and one column
+  // would move the rightbar cell into a second row (its absolutely positioned
+  // panel then sits below the fold).
+  '[class$="frame"]{grid-template-columns:0px minmax(0px,1fr) minmax(0px,0px)!important}',
   "}",
   "</style>",
 ].join("");
