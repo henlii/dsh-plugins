@@ -45,7 +45,13 @@ html[data-dshm-narrow] [class$="frame"]{height:100dvh;height:100svh;box-sizing:b
 html[data-dshm-narrow] [class$="frame"] [class$="sidebarCol"]{overflow:hidden}
 /* 展开：抽屉挂在列的内层（列本身留在网格里，否则对话会掉进 0px 轨）。 */
 html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div{display:block!important;position:fixed;inset:0 auto 0 0;width:min(20rem,86vw);height:100dvh;z-index:41;box-sizing:border-box;overflow:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 0 32px rgba(0,0,0,.28)}
-html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div>div{width:100%!important;max-width:100%!important}#dshm-mask{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .16s ease}
+html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarCol"]>div>div{width:100%!important;max-width:100%!important}/* 外壳在窄屏把会话区（viewArea）压成视口高，输入框是它的下一个兄弟且 position:sticky，
+   sticky 的位移范围被限制在滚动容器的内容盒内 → 往下滚就跟着内容跑掉（实测 top=-2177）。
+   宽屏不会：会话区是内容高，输入框静态位置本来就在内容末尾。
+   这里在窄屏把它钉在视口底部，并把实测高度写进 --dshm-composer-h 给滚动区留位。 */
+html[data-dshm-narrow] [class$="scrollBody"]>[class$="composerSeat"][data-dshm-pinned]{position:fixed;left:0;right:0;bottom:0;z-index:8}
+html[data-dshm-narrow] [class$="scrollBody"][data-dshm-composer-pad]{padding-bottom:var(--dshm-composer-h,0px)}
+#dshm-mask{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .16s ease}
 html[data-dshm-narrow][data-dshm-left="open"] #dshm-mask{opacity:1;pointer-events:auto}
 #dshm-menu{appearance:none;flex:none;width:34px;height:34px;margin:0 2px 0 0;padding:0;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 #dshm-menu:active{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
@@ -200,6 +206,36 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 				}
 			};
 
+			// ── 窄屏输入框钉底（见上面 CSS 注释）────────────────────────────
+			const pinnedSeat = () => document.querySelector('[class$="scrollBody"] > [class$="composerSeat"]');
+
+			let composerWatched = null;
+			const composerObserver = typeof ResizeObserver === "function"
+				? new ResizeObserver(() => {
+					const seat = pinnedSeat();
+					if (seat !== null && seat.hasAttribute("data-dshm-pinned")) {
+						document.documentElement.style.setProperty("--dshm-composer-h", `${Math.ceil(seat.getBoundingClientRect().height)}px`);
+					}
+				})
+				: null;
+
+			const syncComposer = () => {
+				const seat = pinnedSeat();
+				if (seat === null) return;
+				// 外壳的 active 阶段 = 会话已展开（无论有没有消息）。留位用的 padding 会让
+				// 滚动高度变大，所以这里不能拿 scrollHeight 当判据（会形成自我维持的循环）。
+				const phase = seat.closest("[data-phase]")?.getAttribute("data-phase");
+				const pin = phase === "active";
+				seat.toggleAttribute("data-dshm-pinned", pin);
+				seat.parentElement?.toggleAttribute("data-dshm-composer-pad", pin);
+				if (pin) document.documentElement.style.setProperty("--dshm-composer-h", `${Math.ceil(seat.getBoundingClientRect().height)}px`);
+				if (composerObserver !== null && composerWatched !== seat) {
+					composerObserver.disconnect();
+					composerObserver.observe(seat);
+					composerWatched = seat;
+				}
+			};
+
 			// ── 设置：一级列表 / 二级页面 ───────────────────────────────────
 			const settingsPanels = new Set();
 
@@ -286,12 +322,14 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 					annotateSettings();
 				} else {
 					if (root.hasAttribute("data-dshm-narrow")) root.removeAttribute("data-dshm-narrow");
+					root.style.removeProperty("--dshm-composer-h");
 					style.remove();
 					mask.remove();
 					document.getElementById("dshm-menu")?.remove();
 				}
 				applyFrameGrid();
 				syncDrawerState();
+				syncComposer();
 			};
 			const schedule = () => {
 				if (raf === 0) raf = requestAnimationFrame(sync);
@@ -324,6 +362,8 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 					document.removeEventListener("click", onDocumentClick, true);
 					window.removeEventListener("resize", schedule);
 					window.removeEventListener("orientationchange", schedule);
+					composerObserver?.disconnect();
+					document.documentElement.style.removeProperty("--dshm-composer-h");
 					style.remove();
 					gridRule.remove();
 					mask.remove();
