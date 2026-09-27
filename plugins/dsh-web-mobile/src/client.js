@@ -51,6 +51,10 @@ html[data-dshm-narrow][data-dshm-left="open"] [class$="frame"] [class$="sidebarC
    这里在窄屏把它钉在视口底部，并把实测高度写进 --dshm-composer-h 给滚动区留位。 */
 html[data-dshm-narrow] [class$="scrollBody"]>[class$="composerSeat"][data-dshm-pinned]{position:fixed;left:0;right:0;bottom:0;z-index:8}
 html[data-dshm-narrow] [class$="scrollBody"][data-dshm-composer-pad]{padding-bottom:var(--dshm-composer-h,0px)}
+/* 窄屏：表格一律放进可横滚的容器。
+   宿主对 ≥4 列的表格用 overflow-x:hidden（桌面靠 hover / :focus-visible 才露滚动条），
+   触摸设备没有 hover；<4 列的表格则完全没有滚动容器，单元格一被撑宽就直接顶出会话列。 */
+html[data-dshm-narrow] [data-conversation-scroll] div:has(>table){max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
 #dshm-mask{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.42);opacity:0;pointer-events:none;transition:opacity .16s ease}
 html[data-dshm-narrow][data-dshm-left="open"] #dshm-mask{opacity:1;pointer-events:auto}
 #dshm-menu{appearance:none;flex:none;width:34px;height:34px;margin:0 2px 0 0;padding:0;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
