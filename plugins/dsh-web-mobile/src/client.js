@@ -43,10 +43,12 @@ window.__ModuleLoader__.load({
 		const NARROW_MAX = 1024;
 
 const TABLE_CSS = `
-/* 表格：唯一一条不限宽度的规则。宿主把 ≥4 列的表格容器写死 overflow-x:hidden（只有
-   :hover/:focus-visible 才切成 scroll），实测 1600px 下就有 154px 内容被裁掉且滚不动，
-   触摸设备更没有 hover。只把 overflow-x 改成 auto：内容没超宽时不会多出滚动条。 */
-[data-conversation-scroll] div:has(>table){max-width:100%!important;overflow-x:auto!important;overscroll-behavior-x:contain}
+/* 表格：唯一一条不限宽度的规则。
+   宿主给 ≥4 列的表格容器写死 overflow-x:hidden（桌面靠 :hover/:focus-visible 才切成 scroll，
+   触摸设备没有 hover），实测 1600px 下有 154px 内容被裁掉且滚不动；<4 列的表格没有滚动容器。
+   只把 overflow-x 改成 auto —— 宽度、位置、内边距全部交给宿主：容器的宽度是为宽表格特意放宽的
+   （比正文列宽，并向左溢出与正文对齐），自己写 max-width 会把它压回正文宽度，表格就错位了。 */
+[data-conversation-scroll] div:has(>table){overflow-x:auto!important;overscroll-behavior-x:contain}
 `;
 
 		const CSS = `
