@@ -1,4 +1,4 @@
-// dsh-updater host half — check the dsh release channels and apply an in-place
+// dsh-update host half — check the dsh release channels and apply an in-place
 // npm upgrade, then restart the running instance.
 //
 // Why this exists: `dsh` has no self-update subcommand (`dsh --help` only boots
@@ -18,14 +18,14 @@
 //               registry is unreachable.
 //
 // Routes (all JSON; POSTs are same-origin fenced):
-//   GET  /api/dsh-updater/status     current version, channel, latest per source
-//   GET  /api/dsh-updater/versions   release history, optionally ?q= filtered
-//   POST /api/dsh-updater/check      force a fresh check (bypasses the cache)
-//   POST /api/dsh-updater/channel    switch latest | next | alpha
-//   POST /api/dsh-updater/update     npm install a version in place
+//   GET  /api/dsh-update/status     current version, channel, latest per source
+//   GET  /api/dsh-update/versions   release history, optionally ?q= filtered
+//   POST /api/dsh-update/check      force a fresh check (bypasses the cache)
+//   POST /api/dsh-update/channel    switch latest | next | alpha
+//   POST /api/dsh-update/update     npm install a version in place
 //                                    (default: the selected channel; body
 //                                     { version } pins any release from the list)
-//   POST /api/dsh-updater/restart    restart the running dsh service
+//   POST /api/dsh-update/restart    restart the running dsh service
 //
 // Only the dsh launcher itself is restarted, and only when the operator asks
 // for it. The plugin never touches the profile tree, so a failed upgrade leaves
@@ -37,10 +37,10 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const name = "dsh-updater";
+const name = "dsh-update";
 const inject = ["webServer", "timer"];
 
-const ROUTE_PREFIX = "/api/dsh-updater";
+const ROUTE_PREFIX = "/api/dsh-update";
 const PACKAGE_NAME = "@deepseek-ai/dsh";
 const REPO = "deepseek-ai/deepseek-harness";
 const TAG_PREFIX = "dsh-v";
@@ -76,7 +76,7 @@ function dshHome() {
 }
 
 function stateFile() {
-  return join(dshHome(), "dsh-updater-state.json");
+  return join(dshHome(), "dsh-update-state.json");
 }
 
 // ── small utilities ──────────────────────────────────────────────────────────
@@ -1111,20 +1111,20 @@ function launchWatchdogReexec(unitHint) {
   // user can write). mkdtemp gives a 0700 directory only this user can enter.
   let dir;
   try {
-    dir = mkdtempSync(join(tmpdir(), "dsh-updater-"));
+    dir = mkdtempSync(join(tmpdir(), "dsh-update-"));
   } catch {
     dir = tmpdir();
   }
   const script = join(dir, "restart.sh");
   const pid = process.pid;
-  const log = join(dshHome(), "dsh-updater-restart.log");
+  const log = join(dshHome(), "dsh-update-restart.log");
   // argv[0] is the node binary; re-exec it with the original script and args.
   const argv = process.argv.slice(1);
   const quote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
   const relaunch = `${quote(process.execPath)} ${argv.map(quote).join(" ")}`;
   const body = [
     "#!/bin/sh",
-    `# dsh-updater: restart dsh (pid ${pid}) with its original command line`,
+    `# dsh-update: restart dsh (pid ${pid}) with its original command line`,
     `exec >>${quote(log)} 2>&1`,
     `echo "[$(date -Is)] stopping pid ${pid}"`,
     // The script outlives the target, so it must not share its process group.
@@ -1157,7 +1157,7 @@ function launchRestart() {
   const unit = systemdUnitForSelf();
   if (unit !== null) {
     pushLog(`systemd 用户服务 ${unit} 托管当前实例，执行 systemctl --user restart ${unit}`);
-    const child = spawnDetached(["systemctl", "--user", "restart", unit], join(dshHome(), "dsh-updater-restart.log"));
+    const child = spawnDetached(["systemctl", "--user", "restart", unit], join(dshHome(), "dsh-update-restart.log"));
     return { mode: "systemd", unit, pid: child.pid || null, child };
   }
   pushLog("未检测到 systemd 托管，改用看门狗脚本重拉当前命令行");
@@ -1318,7 +1318,7 @@ function apply(ctx, config) {
         sendJson(res, 500, { ok: false, error: err && err.message ? err.message : String(err) });
       }
     }
-  }), "dsh-updater: status route");
+  }), "dsh-update: status route");
 
   ctx.effect(() => webServer.register({
     kind: "exact",
@@ -1344,7 +1344,7 @@ function apply(ctx, config) {
         sendJson(res, 500, { ok: false, error: err && err.message ? err.message : String(err) });
       }
     }
-  }), "dsh-updater: check route");
+  }), "dsh-update: check route");
 
   ctx.effect(() => webServer.register({
     kind: "exact",
@@ -1382,7 +1382,7 @@ function apply(ctx, config) {
         sendJson(res, 500, { ok: false, error: err && err.message ? err.message : String(err) });
       }
     }
-  }), "dsh-updater: channel route");
+  }), "dsh-update: channel route");
 
   ctx.effect(() => webServer.register({
     kind: "exact",
@@ -1426,7 +1426,7 @@ function apply(ctx, config) {
         sendJson(res, 500, { ok: false, error: err && err.message ? err.message : String(err) });
       }
     }
-  }), "dsh-updater: versions route");
+  }), "dsh-update: versions route");
 
   ctx.effect(() => webServer.register({
     kind: "exact",
@@ -1545,7 +1545,7 @@ function apply(ctx, config) {
         installLocked = false;
       }
     }
-  }), "dsh-updater: update route");
+  }), "dsh-update: update route");
 
   ctx.effect(() => webServer.register({
     kind: "exact",
@@ -1598,7 +1598,7 @@ function apply(ctx, config) {
       // browser needs the response body, and the service needs a moment to drain.
       sendJson(res, 202, { ok: true, mode: launched.mode, unit: launched.unit || null, port: webServer.port || null });
     }
-  }), "dsh-updater: restart route");
+  }), "dsh-update: restart route");
 
   if (autoCheck) {
     ctx.timer.interval(() => {

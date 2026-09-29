@@ -19,7 +19,7 @@
 |------|------|
 | [dsh-web-auth](plugins/dsh-web-auth/) | 内网 / LAN / Tailscale 访问的密码认证 + 信任：非回环 `/api` 与 WebSocket 需密码登录，认证后设置、凭据等特权页在内网可用 |
 | [dsh-web-mobile](plugins/dsh-web-mobile/) | 手机端 UI：去掉常驻细轨，左右侧栏改覆盖层抽屉，设置改成两级页（列表 → 详情），处理安全区与 16px 输入框；桌面布局不变 |
-| [dsh-updater](plugins/dsh-updater/) | dsh 更新器：检查 npm dist-tags 与 GitHub release 两个来源、浏览并检索版本历史、升级到通道最新版或指定版本，升级与重启服务为两个独立按钮 |
+| [dsh-update](plugins/dsh-update/) | dsh 更新器：检查 npm dist-tags 与 GitHub release 两个来源、浏览并检索版本历史、升级到通道最新版或指定版本，升级与重启服务为两个独立按钮 |
 
 ## 安装
 

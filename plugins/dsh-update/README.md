@@ -1,4 +1,4 @@
-<h1 align="center">dsh-updater</h1>
+<h1 align="center">dsh-update</h1>
 
 <p align="center">
   <strong>dsh 更新器</strong> — 在 Web GUI 里检查 DeepSeek Harness 的发布通道、浏览与检索版本历史、一键升级到目标版本，并独立重启服务。<br/>
@@ -11,7 +11,7 @@
 
 `dsh` 没有自更新子命令（`dsh --help` 只有 profile 启动与 `dsh plugin add`），所以升级
 只能手工（`npm install -g @deepseek-ai/dsh@<版本>` 或对应的 pnpm / yarn / bun 命令）再重启
-服务。本插件把这两步搬进「插件 → 已安装 → @henlii/dsh-updater」详情页：**先检测这份 dsh 是
+服务。本插件把这两步搬进「插件 → 已安装 → @henlii/dsh-update」详情页：**先检测这份 dsh 是
 怎么装的，再用同样的方式更新它**，并**把升级和重启做成两个独立按钮**——换掉安装目录不会
 影响正在跑的进程，何时付出重启的代价（会断开当前页面）由你决定。
 
@@ -65,17 +65,17 @@ registry 地址取自**拥有这份安装的那个管理器**的 `config get reg
 包自带 `dsh.bundle.patch`，官方 CLI 一条命令装完即挂载：
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-updater
+dsh plugin --profile web add /path/to/dsh-plugins/plugins/dsh-update
 
 # 或从 npm
-dsh plugin --profile web add @henlii/dsh-updater
+dsh plugin --profile web add @henlii/dsh-update
 ```
 
 手动挂法见本仓库根的 `cordis.patch.yml`，两种方式**二选一**（同时用会双挂载，插件树启动
 失败）。配置项只有两个，见包内 `cordis.patch.yml`：
 
 ```yaml
-- id: dsh-updater
+- id: dsh-update
   config:
     channel: latest      # 初值；界面切换后以持久化状态为准
     autoCheck: true      # 每 30 分钟后台检查一次，不安装
@@ -89,12 +89,12 @@ dsh plugin --profile web add @henlii/dsh-updater
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/dsh-updater/status` | 当前版本、通道、各来源最新版、版本列表、更新与重启状态 |
-| GET | `/api/dsh-updater/versions?q=` | 版本历史；`q` 按版本子串或通道标签筛选 |
-| POST | `/api/dsh-updater/check` | 强制重新检查（跳过 10 分钟缓存） |
-| POST | `/api/dsh-updater/channel` | `{ channel }` 切换并持久化通道 |
-| POST | `/api/dsh-updater/update` | `{ version? }` 安装指定版本；省略则装当前通道最新版 |
-| POST | `/api/dsh-updater/restart` | 重启当前 dsh 实例 |
+| GET | `/api/dsh-update/status` | 当前版本、通道、各来源最新版、版本列表、更新与重启状态 |
+| GET | `/api/dsh-update/versions?q=` | 版本历史；`q` 按版本子串或通道标签筛选 |
+| POST | `/api/dsh-update/check` | 强制重新检查（跳过 10 分钟缓存） |
+| POST | `/api/dsh-update/channel` | `{ channel }` 切换并持久化通道 |
+| POST | `/api/dsh-update/update` | `{ version? }` 安装指定版本；省略则装当前通道最新版 |
+| POST | `/api/dsh-update/restart` | 重启当前 dsh 实例 |
 
 ## 实现要点
 

@@ -1,4 +1,4 @@
-// dsh-updater host-half checks: the pure logic the card depends on.
+// dsh-update host-half checks: the pure logic the card depends on.
 //
 // This is a plain Node script (no test runner) so it runs with the same
 // interpreter dsh uses. It covers the three places a wrong answer is costly:

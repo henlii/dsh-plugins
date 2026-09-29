@@ -1,4 +1,4 @@
-// dsh-updater client half — the "dsh 更新" card on this plugin's page under
+// dsh-update client half — the "dsh 更新" card on this plugin's page under
 // Plugins → Installed.
 //
 // The card is the whole surface: it never injects a banner or touches the shell,
@@ -11,19 +11,19 @@
 // install does not change the running process, so the operator decides when to
 // pay the restart (which drops every live WebSocket, including this page).
 window.__ModuleLoader__.load({
-	id: "@henlii/dsh-updater",
+	id: "@henlii/dsh-update",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
 		var react = require("react");
 
-		const name = "dsh-updater-client";
+		const name = "dsh-update-client";
 		// Only the slot service is a hard dependency; everything else is fetched
 		// over HTTP from the host half, so the card works regardless of which
 		// other client plugins happen to be mounted.
 		const inject = ["slots"];
-		const PACKAGE_NAME = "@henlii/dsh-updater";
-		const ROUTE = "/api/dsh-updater";
+		const PACKAGE_NAME = "@henlii/dsh-update";
+		const ROUTE = "/api/dsh-update";
 
 		// How the running dsh copy was installed. Shown verbatim so an operator can
 		// see which tool will be invoked before pressing update.
@@ -229,7 +229,7 @@ window.__ModuleLoader__.load({
 
 			if (status === null) {
 				return react.createElement(react.Fragment, null,
-					react.createElement("style", { "data-plugin-css": "dsh-updater/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
+					react.createElement("style", { "data-plugin-css": "dsh-update/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
 					react.createElement("ul", { className: "dsh-u-cards" },
 						react.createElement("li", { className: "dsh-u-card" },
 							react.createElement("div", { className: "dsh-u-body" },
@@ -424,7 +424,7 @@ window.__ModuleLoader__.load({
 					: null);
 
 			return react.createElement(react.Fragment, null,
-				react.createElement("style", { "data-plugin-css": "dsh-updater/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
+				react.createElement("style", { "data-plugin-css": "dsh-update/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
 				react.createElement("ul", { className: "dsh-u-cards" },
 					react.createElement("li", { className: "dsh-u-card" },
 						react.createElement("div", { className: "dsh-u-body" },
@@ -440,7 +440,7 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			ctx.inject(["slots"], (scope) => {
 				scope.slots.inject("plugins.detail.section", () => scope.slots.register(
-					{ name: "plugins.detail.section", id: "dsh-updater", order: 20 },
+					{ name: "plugins.detail.section", id: "dsh-update", order: 20 },
 					(props) => {
 						const pkg = props !== void 0 && props.subject !== void 0 ? props.subject.pkg : void 0;
 						if (pkg === void 0 || pkg.name !== PACKAGE_NAME) return null;

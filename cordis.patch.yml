@@ -24,8 +24,8 @@
     - id: web-mobile
       name: 'dsh-web-mobile'
 
-    - id: dsh-updater
-      name: 'dsh-updater'
+    - id: dsh-update
+      name: 'dsh-update'
       config:
         # 默认跟随的 npm dist-tag（latest | next | alpha）；界面可切换并持久化。
         channel: latest
