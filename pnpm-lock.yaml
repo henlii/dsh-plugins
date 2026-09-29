@@ -8,6 +8,8 @@ importers:
 
   .: {}
 
+  plugins/dsh-update: {}
+
   plugins/dsh-web-auth:
     dependencies:
       '@deepseek-ai/dsh-atomic-write':

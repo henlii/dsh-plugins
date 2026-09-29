@@ -28,11 +28,17 @@
 //   POST /api/dsh-update/restart    restart the running dsh service
 //
 // Only the dsh launcher itself is restarted, and only when the operator asks
-// for it. The plugin never touches the profile tree, so a failed upgrade leaves
-// the previous install intact: npm keeps the old version until the new one is
-// fully installed.
+// for it. The plugin never touches the profile tree.
+//
+// The upgrade is staged rather than applied in place. An npm-global tree is
+// installed into a throwaway prefix first, verified (the version it claims, plus
+// every asset the web bundle's index.html references), and only then swapped in
+// with two renames. Installing in place is what made an interrupted run
+// dangerous: npm deletes part of the live tree before it writes the new one, and
+// the RUNNING process serves those files straight off disk, so a failed install
+// reached the browser as a blank page.
 import { spawn, execFileSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -956,19 +962,13 @@ function buildInstallCommand(install, version, registry) {
   };
 }
 
-function runInstall(version, onLog) {
+// Run one manager command to completion, streaming its output to `onLog`.
+//
+// The idle timer resets on every line of output. A fixed wall-clock timeout would
+// kill a healthy 200 MB download over a slow mirror, while ten minutes of total
+// silence means the install is genuinely stuck.
+function runCommand(argv, options, onLog) {
   return new Promise((resolve) => {
-    const install = dshInstall();
-    const registry = registryBase(install);
-    const plan = buildInstallCommand(install, version, registry);
-    if (plan.error !== void 0) {
-      resolve({ ok: false, code: -1, error: plan.error, manager: install !== null ? install.manager : null });
-      return;
-    }
-    const { argv } = plan;
-    const childEnv = plan.env !== null && plan.env !== void 0 ? { ...process.env, ...plan.env } : process.env;
-    pushLog(`安装方式 ${install.layout} → ${plan.display}`);
-    pushLog(`$ ${argv.join(" ")}`);
     let settled = false;
     let child;
     try {
@@ -977,17 +977,17 @@ function runInstall(version, onLog) {
         // damage must land somewhere disposable rather than writing node_modules,
         // package.json, and package-lock.json into the home directory. The global
         // layouts all name their target explicitly, so cwd is only a safety net.
-        cwd: plan.cwd !== void 0 ? plan.cwd : tmpdir(),
+        cwd: options.cwd !== void 0 ? options.cwd : tmpdir(),
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
-        env: childEnv
+        env: options.env !== void 0 ? options.env : process.env
       });
     } catch (err) {
-      resolve({ ok: false, code: -1, error: err && err.message ? err.message : String(err), manager: install.manager });
+      resolve({ ok: false, code: -1, error: err && err.message ? err.message : String(err) });
       return;
     }
 
-    let idle = setTimeout(() => {
+    const armIdle = () => setTimeout(() => {
       pushLog(`安装静默超过 ${Math.round(UPDATE_IDLE_MS / 60000)} 分钟，已终止`);
       try {
         child.kill("SIGTERM");
@@ -996,16 +996,10 @@ function runInstall(version, onLog) {
       }
     }, UPDATE_IDLE_MS);
 
+    let idle = armIdle();
     const bump = (chunk) => {
       clearTimeout(idle);
-      idle = setTimeout(() => {
-        pushLog(`安装静默超过 ${Math.round(UPDATE_IDLE_MS / 60000)} 分钟，已终止`);
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* already gone */
-        }
-      }, UPDATE_IDLE_MS);
+      idle = armIdle();
       for (const line of String(chunk).split(/\r?\n/)) {
         const text = line.trim();
         if (text.length > 0) onLog(text);
@@ -1018,15 +1012,239 @@ function runInstall(version, onLog) {
       if (settled) return;
       settled = true;
       clearTimeout(idle);
-      resolve({ ok: false, code: -1, error: err && err.message ? err.message : String(err), manager: install !== null ? install.manager : null });
+      resolve({ ok: false, code: -1, error: err && err.message ? err.message : String(err) });
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
       clearTimeout(idle);
-      resolve({ ok: code === 0, code, error: null, manager: install.manager });
+      resolve({ ok: code === 0, code, error: null });
     });
   });
+}
+
+// Install straight into the tree we are running from. Used for the layouts whose
+// staging story differs per manager (pnpm / yarn / bun / profile), where the
+// caller verifies the result afterwards instead.
+async function runInstall(version, onLog) {
+  const install = dshInstall();
+  const registry = registryBase(install);
+  const manager = install !== null ? install.manager : null;
+  const plan = buildInstallCommand(install, version, registry);
+  if (plan.error !== void 0) return { ok: false, code: -1, error: plan.error, manager };
+  const env = plan.env !== null && plan.env !== void 0 ? { ...process.env, ...plan.env } : process.env;
+  pushLog(`安装方式 ${install.layout} → ${plan.display}`);
+  pushLog(`$ ${plan.argv.join(" ")}`);
+  const result = await runCommand(plan.argv, { cwd: plan.cwd, env }, onLog);
+  return { ...result, manager };
+}
+
+// ── staged upgrade ───────────────────────────────────────────────────────────
+
+// npm reifies a global tree by renaming the directory it replaces to a hidden
+// sibling, `.<name>-<random>`. A leftover of that shape (an earlier run
+// interrupted before its own cleanup) makes the rename fail with ENOTEMPTY — and
+// it fails AFTER npm has already deleted part of the live tree. Measured on this
+// machine: 26110 files down to 7251, with both JS bundles that index.html
+// references gone, which reaches the browser as a blank page.
+//
+// Leftovers are reported, never removed. In that same incident the leftover was
+// the only intact copy of the running version, so deleting one automatically
+// would destroy the recovery path.
+function retireLeftovers(scopeDir) {
+  let entries;
+  try {
+    entries = readdirSync(scopeDir);
+  } catch {
+    return [];
+  }
+  const base = PACKAGE_NAME.slice(PACKAGE_NAME.indexOf("/") + 1);
+  return entries.filter((entry) => entry.startsWith(`.${base}-`)).sort();
+}
+
+// Why an update must be refused before anything is installed, or null when it may
+// proceed.
+//
+// npm's leftover retire directories break npm's own next rename with ENOTEMPTY,
+// and that failure lands after npm has deleted part of the live tree. They are
+// reported instead of removed on purpose: the copy inside one can be the only
+// intact install left (it was, in the incident that prompted this).
+//
+// The SCOPE directory is scanned — the parent of the package directory — because
+// that is where npm parks both `.<name>-<random>` for dsh and the same shape for
+// its `dsh-*` dependencies.
+function updateRefusal(install) {
+  if (install.layout !== "npm-global") return null;
+  const scopeDir = dirname(install.root);
+  const leftovers = retireLeftovers(scopeDir);
+  if (leftovers.length === 0) return null;
+  return `安装目录里有 npm 上次中断留下的目录：${leftovers.join("、")}（在 ${scopeDir}）。它可能是唯一一份完整副本，请先人工确认，再移走或改名后重试。`;
+}
+
+// What an HTML file points at, relative to itself, and whether each one is on
+// disk. Null means the file could not be read at all.
+//
+// Only same-directory references count: an absolute URL belongs to another origin,
+// while a missing local file is what breaks the page.
+function localRefs(htmlPath) {
+  let html;
+  try {
+    html = readFileSync(htmlPath, "utf8");
+  } catch {
+    return null;
+  }
+  const dir = dirname(htmlPath);
+  return [...html.matchAll(/(?:src|href)="\.\/([^"?#]+)/g)]
+    .map((match) => match[1])
+    .map((rel) => ({ rel, present: existsSync(join(dir, rel)) }));
+}
+
+// Is the tree at `root` complete enough to serve? This is the check npm does not
+// do: npm exits 0 for a tree whose client bundle is missing, and the only symptom
+// is a blank page. The claimed version is checked too, so a tree that silently
+// stayed on the old release cannot be swapped in as if it were the new one.
+function verifyInstallTree(root, expectedVersion) {
+  const pkg = readJsonFile(join(root, "package.json"));
+  if (pkg === null) return { ok: false, error: `安装目录无法读取 package.json：${root}` };
+  if (pkg.version !== expectedVersion) {
+    return { ok: false, error: `版本不符：期望 ${expectedVersion}，实际 ${String(pkg.version)}` };
+  }
+  const htmlPath = join(root, "node_modules", "@deepseek-ai", "dsh-web-frontend", "dist", "index.html");
+  const refs = localRefs(htmlPath);
+  // Unreadable, or pointing at nothing local, is a FAILURE rather than "nothing to
+  // check": every published dsh ships this frontend, and a tree without it serves a
+  // blank page — the symptom this whole check exists to catch. Fail closed.
+  if (refs === null) {
+    return { ok: false, error: `读不到前端入口 ${htmlPath}（缺了它页面就是白屏）` };
+  }
+  if (refs.length === 0) {
+    return { ok: false, error: `前端入口没有任何本地资源引用（${htmlPath}），无法确认页面能加载` };
+  }
+  const missing = refs.filter((ref) => !ref.present).map((ref) => ref.rel);
+  if (missing.length > 0) {
+    return { ok: false, error: `前端资源缺失 ${missing.length} 个（页面会白屏）：${missing.slice(0, 3).join("、")}` };
+  }
+  return { ok: true, error: null };
+}
+
+// The global root a manager wrote into `prefix`. POSIX layouts nest it under
+// `lib/`, Windows does not — try both rather than assume one.
+function globalRootIn(prefix) {
+  const scope = PACKAGE_NAME.slice(0, PACKAGE_NAME.indexOf("/"));
+  const base = PACKAGE_NAME.slice(PACKAGE_NAME.indexOf("/") + 1);
+  for (const nodeModules of [join(prefix, "lib", "node_modules"), join(prefix, "node_modules")]) {
+    const root = join(nodeModules, scope, base);
+    if (existsSync(join(root, "package.json"))) return root;
+  }
+  return null;
+}
+
+// Put the verified staged tree in place of the live one. Both renames are on the
+// same filesystem, so each one is atomic; if the second fails, the first is
+// rolled back and the live tree is exactly as it was.
+//
+// The previous tree is parked OUTSIDE node_modules, under a name npm never
+// manages, so it cannot be taken for an installed package or collide with npm's
+// own hidden retire directory.
+function swapStagedTree(install, stagedRoot, onLog) {
+  const live = install.root;
+  const previous = join(install.dir, ".dsh-update-previous");
+  const why = (err) => (err && err.message ? err.message : String(err));
+  try {
+    rmSync(previous, { recursive: true, force: true });
+  } catch (err) {
+    // Nothing has been moved yet, so the live tree is untouched.
+    return { ok: false, code: -1, error: `无法清理上一次的备份 ${previous}：${why(err)}` };
+  }
+  try {
+    renameSync(live, previous);
+  } catch (err) {
+    return { ok: false, code: -1, error: `无法移开当前副本：${why(err)}` };
+  }
+  try {
+    renameSync(stagedRoot, live);
+  } catch (err) {
+    let rolledBack = false;
+    try {
+      renameSync(previous, live);
+      rolledBack = true;
+    } catch {
+      /* reported through the message below */
+    }
+    // A failed rollback must be said out loud: the live path is empty at this
+    // point, and the caller uses this result to decide whether the staging prefix
+    // may be deleted (it may not — the verified tree is still in there).
+    return {
+      ok: false,
+      code: -1,
+      error: rolledBack
+        ? `替换运行副本失败，已回滚到原版本：${why(err)}`
+        : `替换运行副本失败，且回滚也失败：${why(err)}。原版本在 ${previous}，请手动把它改回 ${live}`
+    };
+  }
+  onLog(`已替换运行副本；上一版本留在 ${previous}`);
+  return { ok: true, code: 0, error: null };
+}
+
+// Command for the staged install: same manager and registry as the in-place one,
+// pointed at a throwaway prefix instead of the live tree.
+function buildStagedCommand(binary, version, staging, registry) {
+  const spec = `${PACKAGE_NAME}@${version}`;
+  const cliPrefix = binary.cliJs !== null ? [binary.cliJs] : [];
+  return [binary.argv[0], ...cliPrefix, "install", "-g", spec, "--prefix", staging, "--registry", registry, "--no-audit", "--no-fund"];
+}
+
+// npm-global upgrade, staged: install into a throwaway prefix on the SAME
+// filesystem as the live tree (so the final swap is a rename, not a copy), verify
+// the staged tree, then swap it in. A staged tree that fails to install or verify
+// is deleted and the live tree is never touched — which is the point, since the
+// running process serves the live tree straight off disk.
+async function stagedNpmInstall(install, version, registry, onLog) {
+  const binary = install.binary;
+  if (binary === null || binary === void 0) {
+    return { ok: false, code: -1, error: `未找到可用的 ${install.manager} 命令` };
+  }
+  const staging = join(install.dir, `.dsh-update-staging-${Date.now().toString(36)}`);
+  const argv = buildStagedCommand(binary, version, staging, registry);
+  pushLog(`先装到临时目录（不影响正在运行的副本）：${staging}`);
+  pushLog(`$ ${argv.join(" ")}`);
+  mkdirSync(staging, { recursive: true });
+  // Cleanup must never turn a good update into a reported failure, and a cleanup
+  // error must not escape the handler (an escaped error leaves the card stuck on
+  // "installing", which also refuses restarts).
+  const dropStaging = (because) => {
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch (err) {
+      pushLog(`临时目录清理失败（${because}）：${err && err.message ? err.message : String(err)}`);
+    }
+  };
+  const result = await runCommand(argv, {}, onLog);
+  if (!result.ok) {
+    dropStaging("安装失败");
+    return { ok: false, code: result.code, error: result.error };
+  }
+  const stagedRoot = globalRootIn(staging);
+  if (stagedRoot === null) {
+    dropStaging("没找到安装结果");
+    return { ok: false, code: -1, error: `临时安装结束，但没找到 ${PACKAGE_NAME}（${staging}）` };
+  }
+  const verify = verifyInstallTree(stagedRoot, version);
+  if (!verify.ok) {
+    dropStaging("校验未通过");
+    return { ok: false, code: -1, error: `临时副本不完整，已放弃替换：${verify.error}` };
+  }
+  pushLog("临时副本校验通过（版本与前端资源齐备），开始替换运行副本…");
+  const swapped = swapStagedTree(install, stagedRoot, onLog);
+  // Delete the staging prefix only once the live path really holds a tree again.
+  // After a swap whose rollback also failed, the verified tree is still sitting in
+  // there, and deleting it would throw away the only good copy.
+  if (existsSync(join(install.root, "package.json"))) {
+    dropStaging("更新已结束");
+  } else {
+    pushLog(`运行目录尚未恢复，保留临时目录不删：${staging}`);
+  }
+  return swapped;
 }
 
 // ── restart ──────────────────────────────────────────────────────────────────
@@ -1551,6 +1769,14 @@ function apply(ctx, config) {
           });
           return;
         }
+        // npm's own leftovers are a refusal, not something to clean up silently:
+        // they break npm's next rename with ENOTEMPTY, and the copy sitting inside
+        // one can be the only intact install left (that was the case here).
+        const refusal = updateRefusal(install);
+        if (refusal !== null) {
+          sendJson(res, 409, { ok: false, error: refusal });
+          return;
+        }
 
         state.phase = "installing";
         state.target = target;
@@ -1563,7 +1789,11 @@ function apply(ctx, config) {
         pushLog(`目标版本 ${PACKAGE_NAME}@${target}（${via === "version" ? "指定版本" : `${state.channel} 通道`}）`);
         sendJson(res, 202, { ok: true, started: true, target, via, versionBefore: install.version });
 
-        const result = await runInstall(target, pushLog);
+        // npm-global goes through a staging prefix; the other layouts have their
+        // own staging stories and are verified after the fact instead.
+        const result = install.layout === "npm-global"
+          ? await stagedNpmInstall(install, target, registryBase(install), pushLog)
+          : await runInstall(target, pushLog);
         const after = dshInstall();
         state.versionAfter = after !== null ? after.version : null;
         state.finishedAt = Date.now();
@@ -1580,6 +1810,18 @@ function apply(ctx, config) {
           state.error = `npm 退出码 0，但当前运行副本仍是 v${state.versionAfter}（目标 v${target}）——更新可能落在了另一个 dsh 副本`;
           pushLog(state.error);
           return;
+        }
+        // A tree can claim the right version and still be missing the client
+        // bundle — npm exits 0 for that, and the browser shows a blank page. Check
+        // the tree we are about to run, not just the version it reports.
+        if (after !== null) {
+          const verified = verifyInstallTree(after.root, target);
+          if (!verified.ok) {
+            state.phase = "failed";
+            state.error = `更新已写入，但运行副本不完整：${verified.error}`;
+            pushLog(state.error);
+            return;
+          }
         }
         state.phase = "done";
         pushLog(`更新完成：v${state.versionBefore} → v${state.versionAfter}`);
@@ -1608,6 +1850,19 @@ function apply(ctx, config) {
             : `自动重启失败：${String(restarted.error)}；请用「重启服务」手动重启`);
         } else {
           pushLog("已按配置跳过自动重启；运行中的进程仍是旧版本，需手动重启后生效");
+        }
+      } catch (err) {
+        // Anything thrown after the 202 was sent (a failed mkdir, a cleanup error)
+        // would otherwise leave `phase` stuck on "installing", and while it is
+        // stuck BOTH /update and /restart answer 409. That is the worst possible
+        // pair: the new tree is already on disk and the GUI refuses to restart
+        // into it.
+        if (state.phase === "installing") {
+          state.phase = "failed";
+          state.error = `安装过程异常中断：${err && err.message ? err.message : String(err)}`;
+          pushLog(state.error);
+        } else {
+          throw err;
         }
       } finally {
         installLocked = false;

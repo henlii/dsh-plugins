@@ -7,9 +7,10 @@
 //
 // Run: node scripts/test-updater.mjs
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The host half only exports the plugin surface, so the helpers are pulled out of
 // the source text and evaluated in isolation. Importing it for real would need a
@@ -37,6 +38,18 @@ const harness = [
   extractFunction("classifyInstall"),
   extractFunction("managerGlobalNodeModules"),
   extractFunction("managerOwns"),
+  extractFunction("retireLeftovers"),
+  extractFunction("updateRefusal"),
+  extractFunction("localRefs"),
+  extractFunction("verifyInstallTree"),
+  extractFunction("globalRootIn"),
+  extractFunction("buildStagedCommand"),
+  extractFunction("swapStagedTree"),
+  "function readJsonFile(file) { try { const parsed = JSON.parse(globalThis.__testReadFile(file)); return parsed !== null && typeof parsed === 'object' ? parsed : null } catch { return null } }",
+  "function readFileSync(p) { const v = globalThis.__testReadFile(p); if (v === undefined) throw new Error('ENOENT: ' + p); return v }",
+  "function readdirSync(p) { const v = globalThis.__testReaddir(p); if (v === undefined) throw new Error('ENOENT: ' + p); return v }",
+  "function renameSync(from, to) { globalThis.__testRename(from, to) }",
+  "function rmSync(p) { globalThis.__testRm(p) }",
   "function pickNewer(current, candidate) { if (typeof current !== 'string' || current.length === 0) return candidate; return compareVersions(candidate, current) > 0 ? candidate : current }",
   "const CHANNELS = ['latest', 'next', 'alpha']",
   "const VERSION_LIST_LIMIT = 40",
@@ -47,15 +60,23 @@ const harness = [
   "const sep = '/'",
   "function queryManagerPrefix(m) { const t = globalThis.__testPrefix; return t && typeof t[m] === 'string' ? t[m] : null }",
   "const join = (...parts) => parts.join('/').replace(/\\/+/g, '/')",
-  "export { parseVersion, isCanonicalVersion, compareVersions, buildVersionList, resolveRequestedVersion, buildInstallCommand, classifyInstall, managerOwns };"
+  "export { parseVersion, isCanonicalVersion, compareVersions, buildVersionList, resolveRequestedVersion, buildInstallCommand, classifyInstall, managerOwns, retireLeftovers, updateRefusal, localRefs, verifyInstallTree, globalRootIn, buildStagedCommand, swapStagedTree };"
 ].join("\n");
 
 const module = await import(`data:text/javascript,${encodeURIComponent(harness)}`);
-const { compareVersions, isCanonicalVersion, buildVersionList, resolveRequestedVersion, buildInstallCommand, classifyInstall, managerOwns } = module;
+const { compareVersions, isCanonicalVersion, buildVersionList, resolveRequestedVersion, buildInstallCommand, classifyInstall, managerOwns, retireLeftovers, updateRefusal, localRefs, verifyInstallTree, globalRootIn, buildStagedCommand, swapStagedTree } = module;
 
 let passed = 0;
 function check(label, fn) {
   fn();
+  passed += 1;
+  console.log(`  ok  ${label}`);
+}
+// The staged-install checks drive an async function, so their body has to finish
+// before the count is taken — a plain `check` would report success and then fail
+// in a detached microtask.
+async function checkAsync(label, fn) {
+  await fn();
   passed += 1;
   console.log(`  ok  ${label}`);
 }
@@ -377,6 +398,440 @@ check("a hostile GitHub tag never becomes a list row", () => {
     ] }
   );
   assert.deepEqual(merged.map((row) => row.version), ["0.1.7-rc.2"]);
+});
+
+console.log("retireLeftovers");
+// npm reifies a global tree by renaming the tree it replaces to `.<name>-<random>`.
+// A leftover of that shape makes the NEXT rename fail with ENOTEMPTY, after npm
+// has already deleted part of the live tree: 26110 files down to 7251 here, with
+// the client bundles gone, which is the blank page in the browser. The leftovers
+// are reported, never removed — the one in that incident held the only intact copy.
+check("finds npm's hidden retire directories under the scope", () => {
+  globalThis.__testReaddir = () => [".dsh-qv57kG2L", "dsh", "dsh-previous", ".dshmarket-abc", "dsh-2"];
+  assert.deepEqual(retireLeftovers("/p/lib/node_modules/@deepseek-ai"), [".dsh-qv57kG2L"]);
+});
+check("an unreadable scope directory reports nothing rather than throwing", () => {
+  globalThis.__testReaddir = () => void 0;
+  assert.deepEqual(retireLeftovers("/nope"), []);
+});
+
+console.log("updateRefusal");
+// The route hands `install` straight to this function, so the only thing that can
+// be wrong here is which directory gets scanned. It must be the SCOPE directory
+// (the parent of the package directory), because that is where npm parks both its
+// dsh leftover and the same shape for dsh's own dependencies.
+check("refuses when npm left a retire directory beside the live tree", () => {
+  globalThis.__testReaddir = () => [".dsh-qv57kG2L", "dsh"];
+  const reason = updateRefusal({ layout: "npm-global", root: "/p/lib/node_modules/@deepseek-ai/dsh" });
+  assert.match(reason, /\.dsh-qv57kG2L/);
+  assert.ok(reason.includes("（在 /p/lib/node_modules/@deepseek-ai）"), "must name the scope dir exactly");
+});
+check("names every leftover, sorted", () => {
+  globalThis.__testReaddir = () => [".dsh-bbb", ".dsh-aaa", "dsh"];
+  const reason = updateRefusal({ layout: "npm-global", root: "/p/lib/node_modules/@deepseek-ai/dsh" });
+  assert.match(reason, /\.dsh-aaa、\.dsh-bbb/);
+});
+check("a clean scope directory is not a refusal", () => {
+  // `dsh.broken-1` is not npm's shape (no leading dot), so a leftover like that
+  // must not block updates.
+  globalThis.__testReaddir = () => ["dsh", "dsh.broken-1"];
+  assert.equal(updateRefusal({ layout: "npm-global", root: "/p/lib/node_modules/@deepseek-ai/dsh" }), null);
+});
+check("this plugin's own staging and backup names are outside the scanned directory", () => {
+  // They live in the prefix root while the scan only reads the scope directory, so
+  // the plugin can never refuse its own leftovers (both names start with `.dsh-`).
+  const scopeDir = dirname("/p/lib/node_modules/@deepseek-ai/dsh");
+  assert.equal(scopeDir, "/p/lib/node_modules/@deepseek-ai");
+  assert.ok(!join("/p", ".dsh-update-previous").startsWith(`${scopeDir}/`));
+  assert.ok(!join("/p", ".dsh-update-staging-x").startsWith(`${scopeDir}/`));
+});
+check("layouts other than npm-global are never refused this way", () => {
+  globalThis.__testReaddir = () => [".dsh-qv57kG2L"];
+  assert.equal(updateRefusal({ layout: "pnpm-global", root: "/p/x/dsh" }), null);
+  assert.equal(updateRefusal({ layout: "profile", root: "/p/x/dsh" }), null);
+});
+
+console.log("localRefs");
+// This is the check npm does not do. A tree can exit 0 from npm and still be
+// missing the bundle index.html points at, and the only symptom is a blank page.
+const distDir = "/tree/node_modules/@deepseek-ai/dsh-web-frontend/dist";
+check("marks every same-directory reference present or missing", () => {
+  globalThis.__testReadFile = (p) => (p === `${distDir}/index.html`
+    ? '<script type="module" src="./assets/index-AAA.js"></script><link href="./assets/b.css"><script src="./assets/gone.js"></script><link rel="manifest" href="./manifest.webmanifest">'
+    : void 0);
+  globalThis.__testExists = (p) => p !== `${distDir}/assets/gone.js`;
+  assert.deepEqual(localRefs(`${distDir}/index.html`), [
+    { rel: "assets/index-AAA.js", present: true },
+    { rel: "assets/b.css", present: true },
+    { rel: "assets/gone.js", present: false },
+    { rel: "manifest.webmanifest", present: true }
+  ]);
+});
+check("an unreadable index.html is reported as null", () => {
+  globalThis.__testReadFile = () => void 0;
+  assert.equal(localRefs("/nope/index.html"), null);
+});
+
+console.log("verifyInstallTree");
+const treeHtml = `${distDir}/index.html`;
+const treePkg = "/tree/package.json";
+function armTree({ version, present, html = '<script src="./assets/index-AAA.js"></script>' }) {
+  globalThis.__testReadFile = (p) => {
+    if (p === treePkg) return JSON.stringify({ name: "@deepseek-ai/dsh", version });
+    if (p === treeHtml) return html;
+    return void 0;
+  };
+  globalThis.__testExists = (p) => present.includes(p);
+}
+check("accepts a tree whose version and assets are all present", () => {
+  armTree({ version: "0.2.0-rc.1", present: [`${distDir}/assets/index-AAA.js`] });
+  assert.equal(verifyInstallTree("/tree", "0.2.0-rc.1").ok, true);
+});
+check("refuses a tree that stayed on the old release", () => {
+  armTree({ version: "0.1.7-rc.2", present: [`${distDir}/assets/index-AAA.js`] });
+  const got = verifyInstallTree("/tree", "0.2.0-rc.1");
+  assert.equal(got.ok, false);
+  assert.match(got.error, /版本不符/);
+});
+check("refuses the blank-page tree: right version, missing bundle", () => {
+  armTree({ version: "0.2.0-rc.1", present: [] });
+  const got = verifyInstallTree("/tree", "0.2.0-rc.1");
+  assert.equal(got.ok, false);
+  assert.match(got.error, /白屏/);
+});
+check("refuses a tree with no frontend entry at all", () => {
+  // Fail closed: every published dsh ships this frontend, so an unreadable
+  // index.html is a broken tree, not a tree with nothing to check.
+  globalThis.__testReadFile = (p) => (p === treePkg ? JSON.stringify({ version: "0.2.0-rc.1" }) : void 0);
+  globalThis.__testExists = () => false;
+  const got = verifyInstallTree("/tree", "0.2.0-rc.1");
+  assert.equal(got.ok, false);
+  assert.match(got.error, /读不到前端入口/);
+});
+check("refuses an entry that points at nothing local", () => {
+  armTree({ version: "0.2.0-rc.1", present: [], html: "<html><head></head><body></body></html>" });
+  const got = verifyInstallTree("/tree", "0.2.0-rc.1");
+  assert.equal(got.ok, false);
+  assert.match(got.error, /没有任何本地资源引用/);
+});
+check("the real published shape is covered: both JS entries are seen", () => {
+  // The 0.2.0-rc.1 build references seven local files: a module script, a
+  // modulepreload vendor script, two stylesheets, two favicons and the manifest.
+  // Losing the two JS entries is exactly what produced the blank page, so the
+  // extractor has to see them even when only the CSS files survive.
+  const shape = [
+    '<link rel="manifest" href="./manifest.webmanifest" />',
+    '<link rel="icon" type="image/svg+xml" href="./favicon-dark.svg" media="(prefers-color-scheme: dark)" />',
+    '<link rel="icon" type="image/svg+xml" href="./favicon.svg" media="(prefers-color-scheme: light)" />',
+    '<script type="module" crossorigin src="./assets/index-Dy0OhsZ5.js"></script>',
+    '<link rel="modulepreload" crossorigin href="./assets/vendor-CCJJTK99.js">',
+    '<link rel="stylesheet" crossorigin href="./assets/vendor-BNsW4eBh.css">',
+    '<link rel="stylesheet" crossorigin href="./assets/index-Cq6ljTv2.css">'
+  ].join("\n");
+  armTree({ version: "0.2.0-rc.1", present: [], html: shape });
+  globalThis.__testExists = (p) => p.endsWith(".css");
+  const refs = localRefs(treeHtml);
+  assert.equal(refs.length, 7);
+  assert.deepEqual(refs.filter((ref) => !ref.present).map((ref) => ref.rel), [
+    "manifest.webmanifest",
+    "favicon-dark.svg",
+    "favicon.svg",
+    "assets/index-Dy0OhsZ5.js",
+    "assets/vendor-CCJJTK99.js"
+  ]);
+  const got = verifyInstallTree("/tree", "0.2.0-rc.1");
+  assert.equal(got.ok, false);
+  assert.match(got.error, /前端资源缺失 5 个/);
+});
+
+console.log("globalRootIn");
+check("POSIX global root lives under lib/node_modules", () => {
+  globalThis.__testExists = (p) => p === "/stag/lib/node_modules/@deepseek-ai/dsh/package.json";
+  assert.equal(globalRootIn("/stag"), "/stag/lib/node_modules/@deepseek-ai/dsh");
+});
+check("Windows global root has no lib level", () => {
+  globalThis.__testExists = (p) => p === "/stag/node_modules/@deepseek-ai/dsh/package.json";
+  assert.equal(globalRootIn("/stag"), "/stag/node_modules/@deepseek-ai/dsh");
+});
+check("null when neither layout is there", () => {
+  globalThis.__testExists = () => false;
+  assert.equal(globalRootIn("/stag"), null);
+});
+
+console.log("buildStagedCommand");
+check("stages into a throwaway prefix, with -g as a flag", () => {
+  const staging = "/p/.dsh-update-staging-x";
+  const argv = buildStagedCommand({ argv: ["/usr/bin/npm"], cliJs: null }, "0.2.0-rc.1", staging, "https://r.test");
+  assert.deepEqual(argv, [
+    "/usr/bin/npm", "install", "-g", "@deepseek-ai/dsh@0.2.0-rc.1",
+    "--prefix", staging, "--registry", "https://r.test", "--no-audit", "--no-fund"
+  ]);
+  // The `global` positional bug: written as a bare word it installs the unrelated
+  // `global@4.x` package and turns the whole run into a LOCAL install.
+  assert.ok(!argv.includes("global"));
+  assert.ok(argv.indexOf("-g") < argv.indexOf("--prefix"));
+  assert.equal(argv[argv.indexOf("--prefix") + 1], staging);
+});
+
+console.log("swapStagedTree");
+// The swap replaces the tree the RUNNING process serves files from, so it has to
+// be all-or-nothing: park the live tree outside node_modules, put the verified
+// staged tree in its place, and roll back if the second rename fails.
+const liveRoot = "/p/lib/node_modules/@deepseek-ai/dsh";
+const stagedRoot = "/p/.dsh-update-staging-1/lib/node_modules/@deepseek-ai/dsh";
+check("parks the live tree outside node_modules, then swaps the staged one in", () => {
+  const calls = [];
+  globalThis.__testRename = (from, to) => calls.push(["rename", from, to]);
+  globalThis.__testRm = (p) => calls.push(["rm", p]);
+  const got = swapStagedTree({ root: liveRoot, dir: "/p" }, stagedRoot, () => {});
+  assert.equal(got.ok, true);
+  assert.deepEqual(calls, [
+    ["rm", "/p/.dsh-update-previous"],
+    ["rename", liveRoot, "/p/.dsh-update-previous"],
+    ["rename", stagedRoot, liveRoot]
+  ]);
+});
+check("a failed swap puts the live tree back", () => {
+  const calls = [];
+  globalThis.__testRename = (from, to) => {
+    calls.push(["rename", from, to]);
+    if (from === stagedRoot) throw new Error("EXDEV: cross-device link");
+  };
+  globalThis.__testRm = () => {};
+  const got = swapStagedTree({ root: liveRoot, dir: "/p" }, stagedRoot, () => {});
+  assert.equal(got.ok, false);
+  assert.deepEqual(calls.at(-1), ["rename", "/p/.dsh-update-previous", liveRoot]);
+});
+check("a live tree that cannot be moved is left untouched", () => {
+  const calls = [];
+  globalThis.__testRename = (from, to) => {
+    calls.push([from, to]);
+    throw new Error("EACCES");
+  };
+  globalThis.__testRm = () => {};
+  const got = swapStagedTree({ root: liveRoot, dir: "/p" }, stagedRoot, () => {});
+  assert.equal(got.ok, false);
+  assert.match(got.error, /无法移开当前副本/);
+  assert.equal(calls.length, 1);
+});
+check("a rollback that also fails says so, instead of claiming a rollback happened", () => {
+  // This is the state where the live path is EMPTY: the caller must not be told a
+  // rollback happened, and must not delete the staging prefix (the verified tree
+  // is still in there).
+  globalThis.__testRename = (from) => {
+    if (from === stagedRoot || from === "/p/.dsh-update-previous") throw new Error("EACCES");
+  };
+  globalThis.__testRm = () => {};
+  const got = swapStagedTree({ root: liveRoot, dir: "/p" }, stagedRoot, () => {});
+  assert.equal(got.ok, false);
+  assert.match(got.error, /回滚也失败/);
+  assert.match(got.error, /\.dsh-update-previous/);
+});
+check("a live tree that was moved is never reported as a successful rollback", () => {
+  globalThis.__testRename = (from) => {
+    if (from === stagedRoot) throw new Error("EXDEV");
+  };
+  globalThis.__testRm = () => {};
+  const got = swapStagedTree({ root: liveRoot, dir: "/p" }, stagedRoot, () => {});
+  assert.equal(got.ok, false);
+  assert.match(got.error, /已回滚到原版本/);
+  assert.doesNotMatch(got.error, /回滚也失败/);
+});
+check("failing to clear the previous backup touches neither tree", () => {
+  const renamed = [];
+  globalThis.__testRm = () => {
+    throw new Error("EBUSY");
+  };
+  globalThis.__testRename = (from) => renamed.push(from);
+  const got = swapStagedTree({ root: liveRoot, dir: "/p" }, stagedRoot, () => {});
+  assert.equal(got.ok, false);
+  assert.match(got.error, /无法清理上一次的备份/);
+  assert.deepEqual(renamed, []);
+});
+
+console.log("stagedNpmInstall");
+// This function is the only place that decides whether a staging prefix may be
+// deleted. Deleting it after a swap whose rollback failed would throw away the
+// verified tree while the live path is empty, so the real function is driven
+// against stubbed steps rather than restated in an assertion.
+const stagedHarness = [
+  // `extractFunction` slices from the word `function`, so the `async` modifier has
+  // to be put back by hand; without it the body's `await` is a syntax error.
+  `async ${extractFunction("stagedNpmInstall")}`,
+  'const PACKAGE_NAME = "@deepseek-ai/dsh";',
+  "const join = (...parts) => parts.join('/');",
+  "const state = { scenario: null, removed: [], logs: [], probed: [] };",
+  "function pushLog(line) { state.logs.push(line) }",
+  "function mkdirSync() {}",
+  "function rmSync(p) { state.removed.push(p) }",
+  "function existsSync(p) { state.probed.push(p); return (state.scenario.liveBackPaths || []).includes(p) }",
+  "function buildStagedCommand() { return ['npm', 'install'] }",
+  "async function runCommand() { return state.scenario.install }",
+  "function globalRootIn() { return state.scenario.stagedRoot }",
+  "function verifyInstallTree() { return state.scenario.verify }",
+  "function swapStagedTree() { return state.scenario.swap }",
+  "export { stagedNpmInstall, state };"
+].join("\n");
+const stagedModule = await import(`data:text/javascript,${encodeURIComponent(stagedHarness)}`);
+
+const stagedInstall = {
+  binary: { argv: ["npm"], cliJs: null },
+  manager: "npm",
+  dir: "/p",
+  root: "/p/lib/node_modules/@deepseek-ai/dsh"
+};
+const stagedRootPath = "/p/.dsh-update-staging-1/lib/node_modules/@deepseek-ai/dsh";
+// The probe below is the whole point of the deletion rule: the LIVE tree's own
+// package.json decides, not "did the swap report success".
+const livePackageJson = join(stagedInstall.root, "package.json");
+async function driveStaged(scenario) {
+  stagedModule.state.scenario = scenario;
+  stagedModule.state.removed.length = 0;
+  stagedModule.state.logs.length = 0;
+  stagedModule.state.probed.length = 0;
+  return stagedModule.stagedNpmInstall(stagedInstall, "0.2.0-rc.1", "https://r.test", () => {});
+}
+
+await checkAsync("keeps the staging prefix when the live path did not come back", async () => {
+  const result = await driveStaged({
+    install: { ok: true, code: 0, error: null },
+    stagedRoot: stagedRootPath,
+    verify: { ok: true, error: null },
+    swap: { ok: false, code: -1, error: "替换失败，且回滚也失败" },
+    liveBackPaths: []
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(stagedModule.state.removed, [], "the verified tree must stay on disk");
+  assert.deepEqual(stagedModule.state.probed, [livePackageJson]);
+  assert.ok(stagedModule.state.logs.some((line) => line.includes("保留临时目录")));
+});
+await checkAsync("drops the staging prefix once the live tree is back", async () => {
+  await driveStaged({
+    install: { ok: true, code: 0, error: null },
+    stagedRoot: stagedRootPath,
+    verify: { ok: true, error: null },
+    swap: { ok: true, code: 0, error: null },
+    liveBackPaths: [livePackageJson]
+  });
+  assert.equal(stagedModule.state.removed.length, 1);
+});
+await checkAsync("a swap reporting success still keeps the staging prefix if no live tree is there", async () => {
+  // `swapped.ok` is NOT the criterion. If the live path holds no package.json, the
+  // staging prefix is the only good copy left, whatever the swap reported.
+  await driveStaged({
+    install: { ok: true, code: 0, error: null },
+    stagedRoot: stagedRootPath,
+    verify: { ok: true, error: null },
+    swap: { ok: true, code: 0, error: null },
+    liveBackPaths: []
+  });
+  assert.deepEqual(stagedModule.state.removed, []);
+  assert.ok(stagedModule.state.logs.some((line) => line.includes("保留临时目录")));
+});
+await checkAsync("a rolled-back swap drops the staging prefix like any other failed replace", async () => {
+  // Rollback succeeded, so the live tree is intact and the staging prefix is
+  // disposable — even though the swap reported failure.
+  const result = await driveStaged({
+    install: { ok: true, code: 0, error: null },
+    stagedRoot: stagedRootPath,
+    verify: { ok: true, error: null },
+    swap: { ok: false, code: -1, error: "替换运行副本失败，已回滚到原版本：EACCES" },
+    liveBackPaths: [livePackageJson]
+  });
+  assert.equal(result.ok, false);
+  assert.equal(stagedModule.state.removed.length, 1);
+});
+await checkAsync("never swaps in a staged tree that failed verification", async () => {
+  let swapRan = false;
+  const result = await driveStaged({
+    install: { ok: true, code: 0, error: null },
+    stagedRoot: stagedRootPath,
+    verify: { ok: false, error: "前端资源缺失 5 个" },
+    get swap() {
+      swapRan = true;
+      return { ok: true, code: 0, error: null };
+    },
+    liveBackPaths: [livePackageJson]
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /不完整/);
+  assert.equal(swapRan, false, "the swap must not run at all");
+});
+await checkAsync("a failed install drops the staging prefix and changes nothing", async () => {
+  const result = await driveStaged({
+    install: { ok: false, code: 1, error: null },
+    stagedRoot: null,
+    verify: null,
+    swap: null,
+    liveBackPaths: [livePackageJson]
+  });
+  assert.equal(result.ok, false);
+  assert.equal(stagedModule.state.removed.length, 1);
+});
+
+console.log("swapStagedTree (real filesystem)");
+// The mocked pass above checks the order of calls; this one checks that two real
+// renames actually do what the swap claims. A staging prefix beside the live tree
+// is what makes each step a rename instead of a copy, so it is exercised for real.
+const realHarnessPath = join(tmpdir(), `dsh-update-swap-${String(process.pid)}.mjs`);
+writeFileSync(realHarnessPath, [
+  'import { renameSync, rmSync } from "node:fs";',
+  'import { dirname, join } from "node:path";',
+  extractFunction("swapStagedTree"),
+  'const PACKAGE_NAME = "@deepseek-ai/dsh";',
+  "export { swapStagedTree };"
+].join("\n"), "utf8");
+const { swapStagedTree: swapOnDisk } = await import(pathToFileURL(realHarnessPath).href);
+rmSync(realHarnessPath, { force: true });
+
+const scopeUnder = (prefix) => join(prefix, "lib", "node_modules", "@deepseek-ai");
+function makeTrees() {
+  const base = mkdtempSync(join(tmpdir(), "dsh-swap-"));
+  const prefix = join(base, "prefix");
+  const live = join(scopeUnder(prefix), "dsh");
+  const staged = join(prefix, ".dsh-update-staging-x", "lib", "node_modules", "@deepseek-ai", "dsh");
+  mkdirSync(live, { recursive: true });
+  mkdirSync(staged, { recursive: true });
+  writeFileSync(join(live, "marker.txt"), "old", "utf8");
+  writeFileSync(join(staged, "marker.txt"), "new", "utf8");
+  return { base, prefix, live, staged };
+}
+check("the staged tree ends up live and the old one is parked outside node_modules", () => {
+  const t = makeTrees();
+  try {
+    const got = swapOnDisk({ root: t.live, dir: t.prefix }, t.staged, () => {});
+    assert.equal(got.ok, true);
+    assert.equal(readFileSync(join(t.live, "marker.txt"), "utf8"), "new");
+    assert.equal(readFileSync(join(t.prefix, ".dsh-update-previous", "marker.txt"), "utf8"), "old");
+    assert.equal(existsSync(t.staged), false);
+    assert.equal(existsSync(join(scopeUnder(t.prefix), ".dsh-update-previous")), false);
+  } finally {
+    rmSync(t.base, { recursive: true, force: true });
+  }
+});
+check("a second swap replaces the parked copy instead of piling up", () => {
+  const t = makeTrees();
+  try {
+    assert.equal(swapOnDisk({ root: t.live, dir: t.prefix }, t.staged, () => {}).ok, true);
+    const staged2 = join(t.prefix, ".dsh-update-staging-y", "lib", "node_modules", "@deepseek-ai", "dsh");
+    mkdirSync(staged2, { recursive: true });
+    writeFileSync(join(staged2, "marker.txt"), "newer", "utf8");
+    assert.equal(swapOnDisk({ root: t.live, dir: t.prefix }, staged2, () => {}).ok, true);
+    assert.equal(readFileSync(join(t.live, "marker.txt"), "utf8"), "newer");
+    assert.equal(readFileSync(join(t.prefix, ".dsh-update-previous", "marker.txt"), "utf8"), "new");
+  } finally {
+    rmSync(t.base, { recursive: true, force: true });
+  }
+});
+check("a staged tree that is not there leaves the live tree alone", () => {
+  const t = makeTrees();
+  try {
+    const got = swapOnDisk({ root: t.live, dir: t.prefix }, join(t.prefix, "missing"), () => {});
+    assert.equal(got.ok, false);
+    assert.equal(readFileSync(join(t.live, "marker.txt"), "utf8"), "old");
+  } finally {
+    rmSync(t.base, { recursive: true, force: true });
+  }
 });
 
 console.log(`\n${String(passed)} 项检查全部通过`);
