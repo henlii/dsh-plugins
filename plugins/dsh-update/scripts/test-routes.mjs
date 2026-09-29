@@ -288,6 +288,37 @@ await check("the host fence's own rejection is honoured and surfaced", async () 
   assert.equal(res.status, 401, "the host fence's status must be surfaced");
 });
 
+console.log("auto restart");
+
+await check("status advertises automatic restart as the default", async () => {
+  const { json } = await call("/api/dsh-update/status");
+  assert.equal(json.ok, true);
+  // Restarting after a successful install is what makes the update take effect
+  // and what avoids serving a new client bundle from an old process.
+  assert.equal(json.autoRestart, true);
+  assert.equal(json.autoRestartResult, null, "nothing attempted yet in this run");
+});
+
+await check("autoRestart: false keeps the manual flow", async () => {
+  // A deployment that wants to choose the moment must be able to opt out.
+  const routesOff = new Map();
+  const ctxOff = {
+    get: (svc) => (svc === "webServer"
+      ? { port: 1, register(r) { routesOff.set(r.path, r); return () => {}; } }
+      : void 0),
+    effect: (f) => { const d = f(); return () => typeof d === "function" && d(); },
+    timer: { interval: () => () => {} },
+    logger: { info() {}, warn() {} }
+  };
+  plugin.apply(ctxOff, { channel: "latest", autoCheck: false, autoRestart: false });
+  const route = routesOff.get("/api/dsh-update/status");
+  const res = { writeHead(s) { this.status = s; }, end(t) { this.body = t; } };
+  const req = makeReq({ method: "GET", url: "/api/dsh-update/status", headers: {} });
+  await route.handler(req, res);
+  const data = JSON.parse(res.body);
+  assert.equal(data.autoRestart, false);
+});
+
 console.log("version search");
 
 await check("?q filters by version substring", async () => {

@@ -241,6 +241,10 @@ window.__ModuleLoader__.load({
 			const update = status.update || {};
 			const installing = update.phase === "installing";
 			const install = status.install || null;
+			// Automatic post-install restart: the default flow. `autoRestartResult`
+			// is non-null once the host attempted it for this install.
+			const autoRestart = status.autoRestart !== false;
+			const autoRestartResult = status.autoRestartResult !== void 0 ? status.autoRestartResult : null;
 			const channel = status.channel;
 			const entry = (status.channels && status.channels[channel]) || {};
 			const current = status.current;
@@ -405,7 +409,15 @@ window.__ModuleLoader__.load({
 					? react.createElement("pre", { className: "dsh-u-log" }, update.log.join("\n"))
 					: null,
 				update.phase === "done" && update.versionAfter !== null
-					? react.createElement("p", { className: "dsh-u-warn" }, "安装已完成，但运行中的进程仍是旧版本；点下面的「重启服务」后生效。")
+					? autoRestartResult !== null
+						? react.createElement("p", {
+							className: autoRestartResult.ok ? "dsh-u-mut dsh-u-ok" : "dsh-u-warn"
+						}, autoRestartResult.ok
+							? "已自动重启，新版本即将生效；本页会断开，稍后刷新即可。"
+							: `自动重启失败：${String(autoRestartResult.error || "")}。请点下面的「重启服务」。`)
+						: autoRestart
+							? react.createElement("p", { className: "dsh-u-warn" }, "安装已完成，正在自动重启以让新版本生效；本页会断开，稍后刷新即可。")
+							: react.createElement("p", { className: "dsh-u-warn" }, "安装已完成，但运行中的进程仍是旧版本；点下面的「重启服务」后生效。")
 					: null,
 				react.createElement("div", { className: "dsh-u-row" },
 					react.createElement("button", {
@@ -417,8 +429,8 @@ window.__ModuleLoader__.load({
 						restarting
 							? "服务正在重启，本页会断开，稍后刷新即可"
 							: status.systemdUnit
-								? `通过 systemctl --user 重启 ${String(status.systemdUnit)}（会断开当前页面）`
-								: "非 systemd 托管：由看门狗脚本按原命令行重拉（会断开当前页面）")),
+								? `手动重启：systemctl --user restart ${String(status.systemdUnit)}（会断开当前页面）`
+								: "手动重启：由看门狗脚本按原命令行重拉（会断开当前页面）")),
 				status.restart && status.restart.ok
 					? react.createElement("div", { className: "dsh-u-mut" }, `上次重启：${formatTime(status.restart.at)} · ${String(status.restart.mode || "")}`)
 					: null);

@@ -873,7 +873,8 @@ const state = {
   error: null,
   versionBefore: null,
   versionAfter: null,
-  restart: null // { at, mode, ok, error }
+  restart: null, // { at, mode, ok, error }
+  autoRestart: null // { at, ok, error, mode } — the post-install automatic restart
 };
 
 function pushLog(line) {
@@ -1196,6 +1197,40 @@ function cleanupWatchdogScript() {
   }
 }
 
+// Launch the restart and report the truth about it. Shared by the manual restart
+// route and the automatic post-install restart, so both use the identical proven
+// path (systemd unit first, watchdog fallback) and both record the same state.
+async function performRestart(ctx) {
+  cleanupWatchdogScript();
+  let launched;
+  try {
+    launched = launchRestart();
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    state.restart = { at: new Date().toISOString(), mode: "none", ok: false, error: message };
+    return { ok: false, status: 500, error: `重启失败：${message}`, mode: "none", unit: null };
+  }
+  // A missing setsid/systemctl fails asynchronously; check before claiming the
+  // restart was launched, otherwise the operator is told to expect a restart
+  // that will never happen.
+  const failure = await spawnFailure(launched);
+  if (failure !== null) {
+    const message = `重启命令未能启动：${failure}`;
+    pushLog(message);
+    state.restart = { at: new Date().toISOString(), mode: launched.mode, unit: launched.unit || null, ok: false, error: message };
+    return { ok: false, status: 500, error: message, mode: launched.mode, unit: launched.unit || null };
+  }
+  state.restart = { at: new Date().toISOString(), mode: launched.mode, unit: launched.unit || null, ok: true, error: null };
+  const webServer = ctx.get("webServer");
+  return {
+    ok: true,
+    status: 202,
+    mode: launched.mode,
+    unit: launched.unit || null,
+    port: webServer !== void 0 ? webServer.port || null : null
+  };
+}
+
 // Read a small JSON body. Bounded because these routes only ever receive a
 // channel name or a version string; an unbounded read would let a hostile client
 // buffer memory. Returns null for malformed JSON so the caller can answer 400.
@@ -1237,6 +1272,11 @@ function apply(ctx, config) {
   const configuredChannel = CHANNELS.includes(cfg.channel) ? cfg.channel : null;
   state.channel = CHANNELS.includes(persisted.channel) ? persisted.channel : configuredChannel || DEFAULT_CHANNEL;
   const autoCheck = cfg.autoCheck !== false;
+  // Restarting after a successful install is the DEFAULT: it is what makes the
+  // update actually take effect, and it avoids the window where the process runs
+  // old code while serving the new client bundle (a broken page). Opt out with
+  // `autoRestart: false` to keep the manual two-button flow.
+  const autoRestart = cfg.autoRestart !== false;
 
   const statusBody = async (force) => {
     const data = await runCheck(force === true);
@@ -1290,7 +1330,9 @@ function apply(ctx, config) {
       },
       restart: state.restart,
       installPathExists: install !== null,
-      autoCheck
+      autoCheck,
+      autoRestart,
+      autoRestartResult: state.autoRestart !== void 0 ? state.autoRestart : null
     };
   };
 
@@ -1541,6 +1583,32 @@ function apply(ctx, config) {
         }
         state.phase = "done";
         pushLog(`更新完成：v${state.versionBefore} → v${state.versionAfter}`);
+        // Restart automatically by default. Two reasons: the running process still
+        // holds the OLD code in memory while the client bundle is served from disk,
+        // so until the process restarts the browser gets a mismatched pair and
+        // fails to load ("white screen", observed in practice); and the operator
+        // asked for the update to just take effect. `autoRestart: false` restores
+        // the two-button flow for anyone who wants to pick the moment.
+        if (autoRestart) {
+          pushLog("按配置自动重启以让新版本生效…");
+          // Give the browser a beat to receive the 202 and render progress, then
+          // restart. The reply is already sent, so this does not block it.
+          await new Promise((resolve) => {
+            setTimeout(resolve, 1500).unref();
+          });
+          const restarted = await performRestart(ctx);
+          state.autoRestart = {
+            at: new Date().toISOString(),
+            ok: restarted.ok,
+            error: restarted.error !== null && restarted.error !== void 0 ? restarted.error : null,
+            mode: restarted.mode
+          };
+          pushLog(restarted.ok
+            ? `已触发自动重启（${String(restarted.mode)}）`
+            : `自动重启失败：${String(restarted.error)}；请用「重启服务」手动重启`);
+        } else {
+          pushLog("已按配置跳过自动重启；运行中的进程仍是旧版本，需手动重启后生效");
+        }
       } finally {
         installLocked = false;
       }
@@ -1572,31 +1640,14 @@ function apply(ctx, config) {
         sendJson(res, 409, { ok: false, error: "更新进行中，请等安装结束后再重启" });
         return;
       }
-      cleanupWatchdogScript();
-      let launched;
-      try {
-        launched = launchRestart();
-      } catch (err) {
-        const message = err && err.message ? err.message : String(err);
-        state.restart = { at: new Date().toISOString(), mode: "none", ok: false, error: message };
-        sendJson(res, 500, { ok: false, error: `重启失败：${message}` });
-        return;
-      }
-      // A missing setsid/systemctl fails asynchronously; check before claiming the
-      // restart was launched, otherwise the operator is told to expect a restart
-      // that will never happen.
-      const failure = await spawnFailure(launched);
-      if (failure !== null) {
-        const message = `重启命令未能启动：${failure}`;
-        pushLog(message);
-        state.restart = { at: new Date().toISOString(), mode: launched.mode, unit: launched.unit || null, ok: false, error: message };
-        sendJson(res, 500, { ok: false, error: message });
-        return;
-      }
-      state.restart = { at: new Date().toISOString(), mode: launched.mode, unit: launched.unit || null, ok: true, error: null };
+      const result = await performRestart(ctx);
       // Answer before the instance goes away, then let the restart land: the
       // browser needs the response body, and the service needs a moment to drain.
-      sendJson(res, 202, { ok: true, mode: launched.mode, unit: launched.unit || null, port: webServer.port || null });
+      if (result.ok) {
+        sendJson(res, 202, { ok: true, mode: result.mode, unit: result.unit, port: result.port });
+      } else {
+        sendJson(res, result.status, { ok: false, error: result.error });
+      }
     }
   }), "dsh-update: restart route");
 
