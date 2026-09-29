@@ -439,6 +439,18 @@ window.__ModuleLoader__.load({
 
 		function apply(ctx) {
 			ctx.inject(["slots"], (scope) => {
+				// Settings → independent page. `settings.section` renders one page per
+				// entry and the `label` is what puts it in the settings nav, so this is
+				// the "own tab" placement: reachable without hunting for the plugin row
+				// under Plugins → Installed. The card is the same component in both
+				// seats, so the two never drift.
+				scope.slots.inject("settings.section", () => scope.slots.register(
+					{ name: "settings.section", id: "dsh-update", order: 40, label: () => "dsh 更新" },
+					(props) => react.createElement(UpdaterCard, props)
+				));
+
+				// Plugins → Installed → this package's detail page keeps the same card,
+				// so the plugin is discoverable from where an operator manages plugins.
 				scope.slots.inject("plugins.detail.section", () => scope.slots.register(
 					{ name: "plugins.detail.section", id: "dsh-update", order: 20 },
 					(props) => {

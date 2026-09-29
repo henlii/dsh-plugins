@@ -1,6 +1,6 @@
 {
   "name": "@henlii/dsh-update",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DSH plugin: check the DeepSeek Harness release channels (npm dist-tags + GitHub release tags) from the Web GUI, browse and search the version history, upgrade the running install to the channel's newest or to any pinned version, and restart the service — upgrade and restart stay separate buttons.",
   "type": "module",
   "main": "src/index.js",
