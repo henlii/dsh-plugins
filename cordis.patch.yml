@@ -5,7 +5,7 @@
 # 或把本文件内容并入你的 profile 的 cordis.patch.yml
 #   （$DSH_HOME/profiles/web/cordis.patch.yml，配置 HMR 实时生效）。
 #
-# 注意：两个插件都自带 dsh.bundle.patch，用官方 CLI 安装时
+# 注意：每个插件都自带 dsh.bundle.patch，用官方 CLI 安装时
 #   dsh plugin --profile web add <本仓库>/plugins/dsh-web-auth
 # 会自动把它加进 dsh.profile.bundles 并由它自己的 patch 层挂载——那是首选方式。
 # 两种方式二选一：同时使用会双挂载（同一个插件装两遍），插件树启动失败。
@@ -23,3 +23,9 @@
 
     - id: web-mobile
       name: 'dsh-web-mobile'
+
+    - id: dsh-updater
+      name: 'dsh-updater'
+      config:
+        # 默认跟随的 npm dist-tag（latest | next | alpha）；界面可切换并持久化。
+        channel: latest

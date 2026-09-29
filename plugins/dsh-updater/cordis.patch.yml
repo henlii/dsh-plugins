@@ -1,0 +1,23 @@
+# dsh bundle patch — the layer this package contributes when it is selected in a
+# profile's `dsh.profile.bundles` (installed through `dsh plugin --profile web
+# add`, or by listing the package there by hand).
+#
+# Row id `dsh-updater` is the mount point a deployment overrides from its own
+# profile `cordis.patch.yml`:
+#
+#   - id: dsh-updater
+#     config:
+#       channel: latest
+#       autoCheck: true
+#
+# A profile that mounts this plugin by its own `insert` line instead must drop
+# that line: two mounts mean two host halves and a failed boot.
+- insert:
+    - id: dsh-updater
+      name: '@henlii/dsh-updater'
+      config:
+        # 默认跟随的 npm dist-tag：latest | next | alpha。界面可随时切换，
+        # 切换结果持久化到 <DSH_HOME>/dsh-updater-state.json，这里只是初值。
+        channel: latest
+        # 每 30 分钟后台检查一次新版本（不安装，只刷新卡片上的判断）。
+        autoCheck: true

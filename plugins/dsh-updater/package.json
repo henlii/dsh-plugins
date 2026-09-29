@@ -1,0 +1,36 @@
+{
+  "name": "@henlii/dsh-updater",
+  "version": "0.1.0",
+  "description": "DSH plugin: check the DeepSeek Harness release channels (npm dist-tags + GitHub release tags) from the Web GUI, browse and search the version history, upgrade the running install to the channel's newest or to any pinned version, and restart the service — upgrade and restart stay separate buttons.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node scripts/test-updater.mjs && node scripts/test-routes.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "files": [
+    "src",
+    "scripts",
+    "cordis.patch.yml"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/henlii/dsh-plugins.git",
+    "directory": "plugins/dsh-updater"
+  },
+  "license": "MIT"
+}
