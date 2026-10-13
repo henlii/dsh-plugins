@@ -12,7 +12,16 @@
 // Settings card: contributes the "访问认证" section to this plugin's own page
 // under Plugins → Installed (plugins.detail.section), next to the configuration
 // the official page renders from the Host form. The section stays inert for
-// every other subject.
+// every other subject. The same card is also a Settings page of its own
+// (settings.section — the seat dsh-update uses), so the password and the bind
+// controls are reachable without hunting for the plugin's detail page.
+//
+// Bind control: the web server's host/port live under the password UI. Writing
+// them cannot happen in the browser or at runtime — the Host hands the choice to
+// the official `configEditor`, which persists the row and reconciles the Loader,
+// so the save usually answers nothing (the connection dies with the old
+// listener). The card therefore treats a network error as "submitted" and probes
+// the new address itself.
 window.__ModuleLoader__.load({
 	id: "@henlii/dsh-web-auth",
 	factory: (require) => {
@@ -239,6 +248,148 @@ window.__ModuleLoader__.load({
 			catch { return String(ms); }
 		}
 
+		// ── 服务绑定（host / port）──────────────────────────────────────────
+		// 面板只把选择 POST 给宿主，宿主用官方 configEditor 写进当前 profile 的
+		// patch 并重启 webserver fiber。重启关掉旧监听时本页连接一起断，保存响应
+		// 经常回不来，所以网络错误按「已提交」处理，再去探新地址是否真的起来。
+		const BIND_HOST_CHOICES = [
+			{ value: "127.0.0.1", label: "仅本机（127.0.0.1）" },
+			{ value: "0.0.0.0", label: "所有网卡（0.0.0.0）" }
+		];
+
+		function ServiceBindBlock() {
+			const [state, setState] = react.useState(null);
+			const [host, setHost] = react.useState("127.0.0.1");
+			const [port, setPort] = react.useState("");
+			const [busy, setBusy] = react.useState(false);
+			const [msg, setMsg] = react.useState(null);
+			const [target, setTarget] = react.useState(null);
+
+			const load = react.useCallback(() => {
+				return fetch("/api/dsh-web-auth/bind", { credentials: "same-origin", cache: "no-store" })
+					.then((res) => res.json().catch(() => ({})).then((data) => ({ res, data })))
+					.then(({ res, data }) => {
+						if (!res.ok || !data || !data.ok) {
+							setState({
+								editable: false,
+								reason: res.status === 404
+									? "宿主还没加载绑定接口（重启 dsh 后可用）"
+									: (data && data.error) || "无法读取绑定状态"
+							});
+							return;
+						}
+						setState(data);
+						if (typeof data.host === "string" && data.host.length > 0) setHost(data.host);
+						if (typeof data.port === "number") setPort(String(data.port));
+					})
+					.catch(() => setState({ editable: false, reason: "无法连接服务器" }));
+			}, []);
+			react.useEffect(() => { void load(); }, [load]);
+
+			// 重启期间旧 origin 会有几百毫秒不可达，重试几次再下结论。
+			const reloadState = async (attempts) => {
+				for (let i = 0; i < attempts; i += 1) {
+					await new Promise((resolve) => setTimeout(resolve, 600));
+					const alive = await fetch("/api/dsh-web-auth/bind", { credentials: "same-origin", cache: "no-store" })
+						.then((res) => res.ok, () => false);
+					if (alive) { await load(); return; }
+				}
+			};
+			// 跨源读不到响应，但 opaque 请求成功/失败本身就能说明「有没有东西在听」。
+			const reachable = (url, attempts) => {
+				const probe = (attempt) => fetch(url, { mode: "no-cors", cache: "no-store" })
+					.then(() => true, () => attempt + 1 < attempts
+						? new Promise((resolve) => setTimeout(resolve, 700)).then(() => probe(attempt + 1))
+						: false);
+				return probe(0);
+			};
+
+			const applied = (result) => {
+				const nextPort = typeof result.port === "number" ? result.port : Number(port);
+				const previous = state === null ? null : state.port;
+				if (typeof previous === "number" && previous === nextPort) {
+					setMsg({ kind: "ok", text: "已保存，服务正在按新配置重启监听…" });
+					void reloadState(6);
+					return;
+				}
+				if (nextPort === 0) {
+					setMsg({ kind: "info", text: "已保存：端口交回系统随机分配，重启 dsh 后需在本机日志里看实际端口。" });
+					return;
+				}
+				const url = `http://${window.location.hostname}:${String(nextPort)}/`;
+				setTarget({ url });
+				setMsg({ kind: "info", text: `已提交，服务正在 ${url} 重启监听…` });
+				void reachable(url, 8).then((ok) => {
+					setMsg(ok
+						? { kind: "ok", text: `已生效：${url}` }
+						: { kind: "err", text: `新地址暂时不通（${url}）。端口被占用时改动会自动回滚，可回到原地址确认。` });
+				});
+			};
+
+			const save = () => {
+				if (busy || state === null || state.editable !== true) return;
+				const value = port.trim();
+				if (!/^\d+$/.test(value) || Number(value) > 65535) {
+					setMsg({ kind: "err", text: "端口要是 0-65535 的整数（0 = 由系统分配）" });
+					return;
+				}
+				const nextPort = Number(value);
+				setBusy(true); setMsg(null); setTarget(null);
+				fetch("/api/dsh-web-auth/bind", {
+					method: "POST",
+					credentials: "same-origin",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ host, port: nextPort })
+				}).then((res) => res.json().catch(() => ({})).then((data) => ({ res, data })))
+					.then(({ res, data }) => {
+						if (res.ok && data && data.ok) { applied(data); return; }
+						if (res.status === 404 || res.status === 405) {
+							setMsg({ kind: "err", text: "宿主还没加载绑定接口（重启 dsh 后可用）" });
+							return;
+						}
+						setMsg({ kind: "err", text: (data && data.error) || `保存失败（HTTP ${String(res.status)}）` });
+					})
+					// 连接被重启切断：宿主那边多半已经写成功，按已提交处理并去探新地址。
+					.catch(() => applied({ host, port: nextPort }))
+					.finally(() => setBusy(false));
+			};
+
+			const editable = state !== null && state.editable === true;
+			const reason = state !== null && state.editable !== true ? state.reason : null;
+			const tone = msg === null
+				? null
+				: msg.kind === "err" ? "var(--dsw-alias-label-error)"
+					: msg.kind === "ok" ? "var(--dsw-alias-state-success-primary)"
+						: "var(--dsw-alias-label-secondary)";
+
+			return react.createElement(react.Fragment, null,
+				react.createElement("div", { style: { color: "var(--dsw-alias-label-primary)", fontWeight: 500, margin: "14px 0 6px" } }, "服务绑定"),
+				react.createElement("p", { className: "dsh-o-status", style: { margin: "0 0 8px" } }, `当前访问地址：${window.location.origin}/`),
+				react.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+					react.createElement("select", {
+						className: "dsh-o-input", value: host, disabled: !editable || busy,
+						"aria-label": "绑定地址", style: { flex: 1, minWidth: 0 },
+						onChange: (e) => setHost(e.target.value)
+					}, BIND_HOST_CHOICES.map((choice) => react.createElement("option", { key: choice.value, value: choice.value }, choice.label))),
+					react.createElement("input", {
+						className: "dsh-o-input", inputMode: "numeric", value: port, disabled: !editable || busy,
+						"aria-label": "端口", placeholder: "端口", style: { width: 110, flex: "0 0 auto" },
+						onChange: (e) => setPort(e.target.value),
+						onKeyDown: (e) => { if (e.key === "Enter") save(); }
+					})),
+				react.createElement("div", { className: "dsh-o-footer", style: { borderTop: "none", padding: "4px 0 0", justifyContent: "flex-start" } },
+					react.createElement("button", {
+						type: "button", className: "dsh-o-btn dsh-o-btn-save", disabled: !editable || busy, onClick: save
+					}, busy ? "提交中…" : "保存绑定"),
+					target === null ? null : react.createElement("a", {
+						className: "dsh-o-btn dsh-o-btn-discard", href: target.url, style: { textDecoration: "none" }
+					}, "打开新地址")),
+				reason === null ? null : react.createElement("p", { className: "dsh-o-status", style: { margin: "6px 0 0" } }, reason),
+				msg === null ? null : react.createElement("p", { style: { margin: "6px 0 0", color: tone, fontSize: 12, lineHeight: 1.5 } }, msg.text),
+				react.createElement("p", { className: "dsh-o-status", style: { marginTop: 6 } },
+					"绑定写入当前 profile 的 patch。保存后 webserver 重启监听：本页连接会断开，改端口时请用新地址重新打开。"));
+		}
+
 		function AuthInfoCard() {
 			const [info, setInfo] = react.useState(null);
 			const [failed, setFailed] = react.useState(false);
@@ -342,6 +493,7 @@ window.__ModuleLoader__.load({
 										react.createElement("button", {
 											type: "button", className: "dsh-o-btn dsh-o-btn-save", disabled: busy, onClick: savePassword
 										}, busy ? "保存中…" : "保存密码"))),
+								react.createElement(ServiceBindBlock),
 								react.createElement("div", { style: { color: "var(--dsw-alias-label-primary)", fontWeight: 500, margin: "4px 0 6px" } }, `已登录（${String(sessions.length)}）`),
 								sessions.length === 0
 									? react.createElement("p", { className: "dsh-o-status" }, "暂无活动会话（本机回环访问不发 cookie）")
@@ -472,6 +624,22 @@ window.__ModuleLoader__.load({
 						if (pkg === void 0 || pkg.name !== PACKAGE_NAME) return null;
 						return react.createElement(AuthInfoCard, props);
 					}
+				));
+
+				// 设置面板里单开一页，与 dsh-update 同一种席位：`label` 进左侧导航，
+				// 内容渲染进设置面板的内容列，不必先翻到插件详情页。order 45 紧跟在
+				// dsh 更新 / 插件市场之后（它们在 40）。页头自己画，因为这页没有别的
+				// 外壳标题。
+				slots.inject("settings.section", () => slots.register(
+					{ name: "settings.section", id: "dsh-web-auth", order: 45, label: "访问认证" },
+					() => react.createElement(react.Fragment, null,
+						react.createElement("h2", {
+							style: { margin: "0 0 6px", fontSize: 16, fontWeight: 600, color: "var(--dsw-alias-label-primary)" }
+						}, "访问认证"),
+						react.createElement("p", {
+							style: { margin: "0 0 12px", color: "var(--dsw-alias-label-tertiary)", fontSize: 12, lineHeight: 1.5 }
+						}, "非回环访问要过密码门；这里同时能改密码与 web 服务的绑定地址、端口。"),
+						react.createElement(AuthInfoCard, null))
 				));
 			}
 

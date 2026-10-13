@@ -17,7 +17,9 @@ dsh web 绑 `0.0.0.0` 后，内网设备可以直接连 `/api`，但 dsh 官方�
    Host 头与 `X-Forwarded-For` 伪造无法绕过；
 2. 认证通过后让特权方法在内网放行（**信任**）；
 3. 顺带修复 LAN 页面的 `crypto.randomUUID` 缺失（非 secure context）与客户端
-   `isLoopback` 作用域判定。
+   `isLoopback` 作用域判定；
+4. 在插件页（以及「设置 → 访问认证」整页）提供**绑定地址 + 端口**控制，不必再手改
+   profile patch 或靠启动参数换 `--port`。
 
 回环（`127.0.0.1` / `::1`）访问免密，方便本机运维。
 
@@ -62,6 +64,33 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 `<dsh 配置目录>`：`DSH_HOME` 优先，Windows 为 `%APPDATA%\dsh`，其余为
 `$XDG_CONFIG_HOME/dsh`（通常 `~/.config/dsh`）。
 
+## 服务绑定（端口 / 绑定地址）
+
+「插件」页 → 已安装 → `@henlii/dsh-web-auth`，改密码的下面就是绑定控制；同一张卡片也是
+设置里的独立一页「访问认证」（与「dsh 更新」同一种席位）。
+
+- **绑定地址**：下拉框，只有 `127.0.0.1`（仅本机）与 `0.0.0.0`（所有网卡）两个取值
+  ——官方 `dsh-host-webserver` 的 `host` schema 就是这两个常量，填具体网卡 IP 会被
+  配置校验拒绝。
+- **端口**：`0-65535`，`0` 表示交回系统随机分配。
+- **当前访问地址**：一行提示，取当前页面的 origin（你在哪个地址访问就显示哪个），改
+  端口后与「打开新地址」对照。
+
+保存走官方 `ctx.configEditor.edit()`：它把 `webserver` 行的下一份 config 写进**当前
+profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fiber。因此：
+
+- 保存后浏览器**多半收不到响应**——fiber 重启会关掉旧监听和所有连接，本页 WebSocket
+  一起断。面板把这种断连按「已提交」处理，改端口时给出新地址并探测它是否真的起来。
+- **只填写你改过的键**：只改绑定地址时，`port: !!js ctx.webStartup.port ?? 3080` 这类
+  表达式原样保留（`--port` 继续有效）；一旦改了端口就写成字面量，此后 `--port` 不再
+  影响它。想恢复「跟随启动参数」，在 profile patch 里把该键改回 `!!js` 表达式即可。
+- 端口被占用在写文件**之前**就被预检拦下（409），不会留下坏配置；其它 reconcile 失败
+  由 configEditor 自动回滚 patch 并重新加载旧配置。
+- 该行若还被 home patch 或命令行 `--patch` overlay 覆盖，configEditor 会**拒绝写入**
+  （面板显示原因），因为写进去也不生效。
+- `0.0.0.0` 会把带 RCE 能力的 API 摆到网络上（官方 CLI 因此拒绝 `--host 0.0.0.0`）。
+  改之前请确认访问密码已配置：没有密码时 `/api` 对全网络开放。
+
 ## 能力
 
 | 能力 | 说明 |
@@ -76,7 +105,9 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | 官方 index 握手 | 非回环 index 请求在**宿主自己的判定**（`connection.requestRejection`）返回 401 时补上官方启动 token，由宿主自行种下浏览器 cookie；判定通过则原样放行（不多一次跳转，也不会成环）。因此浏览器里留着失效的 `dsh-auth-*` cookie（异 authority／端口、或密钥已轮换）时能自动恢复，而不是永久停在官方那句 401 原文上 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
 | token 持久化 | 会话 token 落盘，服务重启不失效 |
-| 插件页卡片 | 「插件」页 → 已安装 → `@henlii/dsh-web-auth` 详情页里的「访问认证」区块：改访问密码、列出已登录会话（地址 / 时间）并删除某条登录 |
+| 插件页卡片 | 「插件」页 → 已安装 → `@henlii/dsh-web-auth` 详情页里的「访问认证」区块：改访问密码、绑定地址 / 端口、列出已登录会话（地址 / 时间）并删除某条登录 |
+| 设置内独立页 | 与「dsh 更新」同一种席位（`settings.section`，order 45）：左侧设置导航单列「访问认证」，内容与插件详情页同一张卡片 |
+| 服务绑定控制 | 绑定地址下拉 + 端口输入 + 当前访问地址提示；经官方 `configEditor` 写进 profile patch 并热重启 webserver，端口占用在写盘前预检 |
 | 远程打开配置文件 | 遮罩官方「打开配置文件」按钮：点开一律在浏览器里弹出模态框查看 / 编辑 profile patch（复制 / 下载 / 保存，Ctrl+S）；宿主有桌面打开器时，模态框里多一个「在服务器本机打开」 |
 
 ## 安全边界
@@ -87,7 +118,8 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 - 回环同样需要官方浏览器 cookie（官方设计），本插件只在其上增加一层密码门；
 - 密码是部署级秘密（环境变量 / 0600 文件），GUI 里只写不改读；
 - `trustLoopbackPaths` 只对**已认证**会话生效，且只影响列出的前缀，未带 token 的请求仍然 401。它不提升信任级别：已登录的 LAN 会话本来就能改 settings / 凭据，这里只是让那些自带回环围栏的路由接受同一批人；
-- socket 对端地址是逐请求影子：响应结束（`finish`/`close`）立即摘掉，keep-alive 后续请求按真实对端判定。
+- socket 对端地址是逐请求影子：响应结束（`finish`/`close`）立即摘掉，keep-alive 后续请求按真实对端判定；
+- 绑定控制不绕过官方校验：面板只把选择交给官方 `configEditor`，由它验证候选值、原子写 patch、失败回滚；能改它的会话本来就能改 settings 与凭据（面板自身在密码门之后）。切到 `0.0.0.0` 的后果与官方 `--host 0.0.0.0` 完全相同，因此该控制与密码配置是一体的。
 
 ## 版本兼容
 
@@ -98,6 +130,11 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 - 不再依赖 `@deepseek-ai/dsh-settings`（该包的 `installSettingsSection` 在 0.1.7 已移除），
   设置卡片改由客户端自己注册到插件页；
 - 旧版 dsh 的 keyed 设置槽 `settings.plugin.item` 与客户端 `settingsScope` 服务在 0.1.7 已不存在。
+
+绑定控制另需宿主提供 `ctx.configEditor`（`dsh-base` 的 `config-editor` 行）：缺失时
+面板把控件禁用并显示原因，认证本身不受影响。设置里的独立页注册在 `settings.section`
+（由 `dsh-client-ui-sidebar` 声明）；槽未声明或对应包不在时该页不出现，插件详情页的
+卡片照旧。
 
 ## License
 

@@ -23,9 +23,16 @@
 //                    restarts. Default: <dsh-config>/web-auth-tokens.json
 //   <dsh-config>   — DSH_HOME if set, else %APPDATA%/dsh on Windows, else
 //                    ~/.config/dsh (XDG).
+//
+// Panel control: the client half renders the web server's bind address and port
+// under the password card (and in a Plugins tab inside Settings). Both go
+// through the official `configEditor` service, which persists the webserver
+// row's next config into the current profile's patch and reconciles it through
+// the Loader — host/port are composition-time facts with no runtime rebind API.
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { homedir } from "node:os";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createServer } from "node:net";
 import { join, dirname } from "node:path";
 import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
 
@@ -282,6 +289,32 @@ function readJsonBody(req, limit = 65536) {
       }
     });
     req.on("error", reject);
+  });
+}
+
+// 端口可用性预检。改端口时先在目标上试绑一次，成功立即释放，失败把原因带回
+// 面板。这样「端口被占用」在写文件之前就以普通 HTTP 错误返回；否则它只会在
+// reconcile 里炸掉 webserver fiber，而那一刻旧监听已经被关掉，浏览器什么也
+// 收不到（见下面 BIND_ROUTE 的说明）。端口没变时不预检——当前监听本身就占着它。
+function probeBind(host, port) {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    const settle = (reason) => {
+      probe.removeAllListeners("listening");
+      probe.removeAllListeners("error");
+      try {
+        probe.close(() => resolve(reason));
+      } catch {
+        resolve(reason);
+      }
+    };
+    probe.once("error", (error) => settle((error && error.code) || "bind failed"));
+    probe.once("listening", () => settle(null));
+    try {
+      probe.listen(port, host);
+    } catch (error) {
+      settle((error && error.code) || "bind failed");
+    }
   });
 }
 
@@ -1006,6 +1039,126 @@ function apply(ctx, config) {
       sendJson(res, 200, { ok: true, path });
     },
   }), "dsh-web-auth: settings-document write route");
+
+  // ── 服务绑定（host / port）────────────────────────────────────────────
+  // host 与 port 是组合期事实：webserver 行在自己的激活里 listen，之后没有
+  // rebind 接口。所以面板不改运行期状态，而是把选择交回组合层——官方
+  // configEditor.edit() 把该行的下一份 config 写进当前 profile 的 patch，再经
+  // Loader reconcile 重启 webserver fiber（旧监听关闭、新监听建立）。
+  //
+  // 路由挂在 /api 前缀下，由上面 patched register 包进 authorizeHttp：非回环
+  // 对端必须先过密码门，回环免密，所以这里不再单独鉴权。
+  //
+  // 保存成功时浏览器多半收不到 200：fiber 重启会 closeAllConnections()，本插件
+  // 的 fiber 也作为 webServer 的消费者一起重启，响应在写出之前就随旧 socket
+  // 消失。客户端因此把网络错误按「已提交」处理，再自行探测新地址。
+  const BIND_ROUTE = "/api/dsh-web-auth/bind";
+  const BIND_HOSTS = ["127.0.0.1", "0.0.0.0"];
+  const findWebserverEntry = () => {
+    const editor = ctx.get("configEditor");
+    if (editor === void 0) return null;
+    try {
+      const entry = editor.entries().find((item) => item !== void 0 && item.options !== void 0 && item.options.id === "webserver");
+      return entry === void 0 ? null : { editor, entry };
+    } catch {
+      return null;
+    }
+  };
+  const bindUnavailable = () => ctx.get("configEditor") === void 0
+    ? "宿主没有 configEditor 服务，无法在面板修改绑定（需要带 Loader 的 profile 宿主）"
+    : "当前插件树里没有 webserver 行，无法在面板修改绑定";
+  // webserver 重启之后，新监听上的请求回调是在 HMR 事务的 async 上下文里创建的
+  // （fiber 重启就发生在 hmr.runExclusive 之内），于是同一进程里后续每个请求都
+  // 带着那个上下文，configEditor.edit() 再进 runExclusive 就被判成
+  // 「HMR transactions cannot be nested」——第一次改绑定能成功，第二次开始报错。
+  // dsh-hmr 处理自己的 watcher 时也是用 executing.exit() 脱开这个上下文，这里照做；
+  // 拿不到该字段（官方换了实现）就退回直接调用，行为不比官方更差。
+  const runOutsideHmrTransaction = (operation) => {
+    const hmr = ctx.get("hmr");
+    const executing = hmr !== void 0 ? hmr.executing : void 0;
+    if (executing !== void 0 && typeof executing.exit === "function") return executing.exit(operation);
+    return operation();
+  };
+
+  ctx.effect(() => webServer.register({
+    kind: "exact",
+    path: BIND_ROUTE,
+    handler: async (req, res) => {
+      const found = findWebserverEntry();
+      const boundHost = typeof webServer.host === "string" ? webServer.host : null;
+      const boundPort = typeof webServer.port === "number" ? webServer.port : null;
+
+      if (req.method === "GET") {
+        let patchPath = null;
+        if (found !== null) {
+          try {
+            patchPath = found.editor.documentPath;
+          } catch {
+            patchPath = null;
+          }
+        }
+        sendJson(res, 200, {
+          ok: true,
+          host: boundHost,
+          port: boundPort,
+          editable: found !== null,
+          reason: found === null ? bindUnavailable() : null,
+          patchPath
+        });
+        return;
+      }
+      if (req.method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "method not allowed" });
+        return;
+      }
+
+      let body = null;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        /* 空或非法 body 交给下面的字段校验报错 */
+      }
+      const host = body !== null && typeof body === "object" && typeof body.host === "string" ? body.host : "";
+      const portValue = body !== null && typeof body === "object" && (typeof body.port === "number" || typeof body.port === "string")
+        ? String(body.port).trim()
+        : "";
+      if (!BIND_HOSTS.includes(host)) {
+        sendJson(res, 400, { ok: false, error: `绑定地址只支持 ${BIND_HOSTS.join(" 或 ")}（官方 webserver 的 host 只有这两个取值）` });
+        return;
+      }
+      if (!/^\d+$/.test(portValue) || Number(portValue) > 65535) {
+        sendJson(res, 400, { ok: false, error: "端口必须是 0-65535 的整数（0 = 由系统分配）" });
+        return;
+      }
+      const port = Number(portValue);
+      if (found === null) {
+        sendJson(res, 503, { ok: false, error: bindUnavailable() });
+        return;
+      }
+      // 只在端口真的变化时预检：端口没变说明当前监听正占着它，探了必然失败。
+      if (port !== 0 && port !== boundPort) {
+        const reason = await probeBind(host, port);
+        if (reason !== null) {
+          sendJson(res, 409, { ok: false, error: `端口 ${port} 现在不可用（${reason}）` });
+          return;
+        }
+      }
+      try {
+        await runOutsideHmrTransaction(() => found.editor.edit(found.entry, (current) => {
+          // 没动的键原样带回：连 !!js 表达式一起保留，例如用户只改绑定地址时
+          // `port: !!js ctx.webStartup.port ?? 3080` 不会被写死成字面量。
+          const next = { ...current };
+          if (host !== boundHost) next.host = host;
+          if (port !== boundPort) next.port = port;
+          return next;
+        }));
+      } catch (error) {
+        sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      sendJson(res, 200, { ok: true, host, port });
+    },
+  }), "dsh-web-auth: bind route");
 
   try {
     ctx.interval(() => {
