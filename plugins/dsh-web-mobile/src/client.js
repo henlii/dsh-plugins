@@ -63,6 +63,12 @@ html[data-dshm-narrow][data-dshm-left="open"] #dshm-mask{opacity:1;pointer-event
 #dshm-menu{appearance:none;flex:none;width:34px;height:34px;margin:0 2px 0 0;padding:0;border:0;border-radius:9px;background:transparent;color:var(--dsw-alias-label-secondary,#5a6472);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 #dshm-menu:active{background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
 #dshm-menu.dshm-float{position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);left:8px;z-index:30;background:var(--dsw-alias-bg-layer-3,#fff);box-shadow:0 1px 6px rgba(0,0,0,.14)}
+/* 工作区树里「目录行 / 会话行」行尾的 ⋯ 菜单：宿主写成 hover（或菜单已开）才 display:inline-flex，
+   触摸设备没有 hover —— 手机上这两类行因此永远没有行菜单入口（重命名 / 分叉 / 删除）。窄屏改成常驻。
+   类名是 CSS Module 哈希（每次构建都换），按行与操作区的语义子串定位，不写死前缀。
+   行内其余元素（时间、置顶标记）保持宿主原样：它们与按钮同显只是挤一点，标题已有省略号。 */
+html[data-dshm-narrow] [class*="projectRow"] [class*="rowActions"],
+html[data-dshm-narrow] [class*="sessionRow"] [class*="rowActions"]{display:inline-flex!important}
 html[data-dshm-narrow] textarea,html[data-dshm-narrow] input{font-size:16px!important}
 html[data-dshm-narrow] [role="dialog"]:not(.dshm-settings){max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important}
 html[data-dshm-narrow] [data-radix-popper-content-wrapper]{max-width:calc(100vw - 16px)!important}
