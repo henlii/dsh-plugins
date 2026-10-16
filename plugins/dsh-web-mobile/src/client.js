@@ -298,31 +298,44 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 				for (const panel of settingsPanels) if (!panel.isConnected) settingsPanels.delete(panel);
 			};
 
-			// 工作区行尾动作区（`[class*="rowActions"]`）里，「⋯（工作区菜单）」与「新会话」都是
-			// button.iconButton、都没有 aria-haspopup，只能按顺序认：⋯ 在前、新会话在后
+			// 行尾动作区（`[class*="rowActions"]`）：工作区行里「⋯（工作区菜单）」与「新会话」都是
+			// button.iconButton、都没有 aria-haspopup，只能按顺序认——⋯ 在前、新会话在后
 			// （dsh-client-ui-workspace 的 Rows：先 Menu 锚点、再 Tooltip 包着的 + 按钮）。
-			// 点「新会话」要让抽屉让位（马上跳进新会话）；点 ⋯ 不能收——那个菜单不在 portal 里，
-			// 抽屉一收就跟着被藏掉。
+			// 动作区还必须属于工作区行本身：会话行的动作区同样嵌在 projectRow 的子树里。
+			const rowClassOf = (slot) => {
+				let node = slot.parentElement;
+				for (let i = 0; i < 3 && node !== null; i += 1) {
+					const cls = String(node.getAttribute("class") || "");
+					if (/projectRow|sessionRow|panelRow|searchResultRow/.test(cls)) return cls;
+					node = node.parentElement;
+				}
+				return "";
+			};
 			const isWorkspaceNewSession = (target) => {
-				const slot = target.closest('[class*="projectRow"] [class*="rowActions"]');
-				if (slot === null) return false;
+				const slot = target.closest('[class*="rowActions"]');
+				if (slot === null || !rowClassOf(slot).includes("projectRow")) return false;
 				const button = target.closest("button");
 				if (button === null) return false;
 				const buttons = slot.querySelectorAll("button");
 				return buttons.length > 0 && button === buttons[buttons.length - 1];
 			};
 
-			// 抽屉里点中会话 / 面板行 / 工作区的「新会话」 → 收起抽屉（跟 pidance 一致：选完就让位）。
+			// 抽屉什么时候让位：只有**导航**才收——点会话行 / 面板行本身、顶部「新建会话」、工作区行的
+			// 「新会话」。行尾动作区里的按钮一概不收：那些是挂在行上的菜单（会话 ⋯ 走 portal，工作区 ⋯
+			// 不走），抽屉一收，不 portal 的那个会被一起藏掉，portal 的那个也会瞬间从行上脱开。
 			const onDocumentClick = (event) => {
 				if (!document.documentElement.hasAttribute("data-dshm-narrow")) return;
 				const target = event.target instanceof Element ? event.target : null;
 				if (target === null) return;
 				const col = sidebarCol();
 				if (col === null || !col.contains(target)) return;
-				if (target.closest('[class*="sessionRow"],[class*="panelRow"],[class*="newSession"]') !== null || isWorkspaceNewSession(target)) {
-					// 官方自己的点击处理先跑完，再收抽屉，避免打断导航。
-					setTimeout(collapseSidebar, 0);
+				if (target.closest('[class*="rowActions"]') !== null) {
+					if (!isWorkspaceNewSession(target)) return;
+				} else if (target.closest('[class*="sessionRow"],[class*="panelRow"],[class*="newSession"]') === null) {
+					return;
 				}
+				// 官方自己的点击处理先跑完，再收抽屉，避免打断导航。
+				setTimeout(collapseSidebar, 0);
 			};
 
 			// ── 手机上点编辑器工具行的按钮不要弹键盘 ──────────────────────────
