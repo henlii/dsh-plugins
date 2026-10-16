@@ -53,6 +53,19 @@ const TABLE_CSS = `
 `;
 
 		const CSS = `
+/* ── 手机可视高度校正（两条，都在 dvh 支持下生效）─────────────────────────
+   背景：手机浏览器把 100%/100vh 算成「地址栏已隐藏」的那个高度；地址栏一显示，多出来的
+   那 ~57px 就成了文档的可滚动溢出，按住输入框上方的空白能把整个应用（标题栏 + 会话区 +
+   输入框）拖上去，右缘还冒滚动条。真机读数：html 695/751、over 56，拖到底 scrollHeight
+   涨到 26738。
+   1) 文档高度按当前可见高度，应用正好贴合可视区（顺带让输入框不再落在地址栏下面）；
+   2) dsh-better-sidebar 的面板宿主在降级态是它自己的 position:absolute + height:100vh
+      （sidebar.module.css），absolute 以初始包含块为参照，宿主的 overflow 裁不住它；它的
+      100vh 就是那 57px 溢出的来源（真机读数：endsAtBottom div b752 h752 absolute
+      clip=none{data-dsh-panel-host}）。把高度改回 dvh，底边正好落在可见区底部。
+      它的 fixed 态不参与文档滚动，不受影响。 */
+@supports (height:100dvh){html[data-dshm-narrow]{height:100dvh}
+html[data-dshm-narrow] [data-dsh-panel-host][data-dsh-panel-host-degraded]{height:100dvh}}
 /* 收起：第一轨已被归零，列自身 overflow:hidden，栏内容自然不可见。这里不能用 display:none —— 网格项一旦消失，后面的列会左移一轨，把对话挤进 0px。 */
 html[data-dshm-narrow] [class$="frame"] [class$="sidebarCol"]{overflow:hidden}
 /* 展开：抽屉挂在列的内层（列本身留在网格里，否则对话会掉进 0px 轨）。 */

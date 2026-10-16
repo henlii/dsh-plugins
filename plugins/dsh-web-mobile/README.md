@@ -71,18 +71,43 @@ CLI 会把它加进 profile 的 `dsh.profile.bundles`，无需手改配置。手
   `webServer.tapIndex` 往 `<head>` 注入 viewport meta 与一段手机宽度的 critical CSS。
 - 无 `@deepseek-ai/*` 运行时依赖，不 import 任何插件。
 
-## 不改宿主的滚动模型
+## 不改宿主的滚动模型（但校正手机可视高度）
 
-窄屏下外壳的会话是**文档自己滚**、输入框靠 `position:sticky` 贴在视口底部。插件一旦写
-`html,body{overflow:hidden;height:100%}` 或给框架定死 `height:100svh`，sticky 的滚动参照就从文档
-变成被锁死的框架，输入框会跟着消息一起滚出屏幕——**这个坑是本人踩的**：0.2.1 / 0.2.2 两版都在给
-它打补丁，方向完全错了。现在插件不碰任何高度 / overflow，只做五件事：
+窄屏下外壳的会话是**文档自己滚**、输入框靠 `position:sticky` 贴在视口底部。插件**不锁 overflow**：
+一旦写 `html,body{overflow:hidden;height:100%}` 或给框架定死 `height:100svh`，sticky 的滚动参照就从
+文档变成被锁死的框架，输入框会跟着消息一起滚出屏幕——**这个坑是本人踩的**：0.2.1 / 0.2.2 两版都在给
+它打补丁，方向完全错了，0.2.4 已全部删除。现在插件不碰 `overflow`，只做五件事：
 
 - 网格第一轨归零（去细轨）+ 抽屉挂在栏的内层；
 - 设置弹层的两级视图；
 - 16px 输入框、安全区；
 - 目录 / 会话行的行尾按钮常驻；
 - 表格：取消宽表格容器的左右外扩 + 改成可横滚（唯一一条不限宽度的规则，见下）。
+
+**例外是 0.2.8 加的两条高度规则**（都关在 `@supports (height:100dvh)` 里，只动高度）：
+
+1. `html[data-dshm-narrow]{height:100dvh}` —— 手机把 `100%` / `100vh` 算成「地址栏已隐藏」的高度，
+   地址栏一显示就多出 ~57px 的**文档可滚动溢出**：按住输入框上方的空白能把整个应用（标题栏 +
+   会话区 + 输入框）拖上去，拖进去后下面的元素再渲染内容，文档一路长到 2.6 万 px。改成 `dvh`
+   后应用贴合当前可见高度。
+2. `[data-dsh-panel-host][data-dsh-panel-host-degraded]{height:100dvh}` —— `dsh-better-sidebar`
+   的面板宿主在降级态把自己从 `position:fixed;height:100vh` 改成 `position:absolute;top:0;left:0`
+   （它自己的 `sidebar.module.css`）。绝对定位以**初始包含块**为参照，所以我们的 `overflow` 裁不住
+   它，那 100vh 正是上面那 57px 溢出的来源（真机读数：
+   `endsAtBottom div b752 h752 absolute clip=none{data-dsh-panel-host}`）。窄屏把高度改回 `dvh`，
+   底边正好落在可见区底部；它的 `fixed` 态不参与文档滚动，不受影响。
+
+真机验证：修正后 `over 0`、文档拖不动、会话内部滚动照常。
+
+## 键盘与视口
+
+注入的 viewport meta 带 `interactive-widget=resizes-content`：Android Chrome 默认的
+`resizes-visual` 在软键盘弹出时**不缩布局视口**，输入框留在键盘后面，只有浏览器的光标滚动把它顶上
+一半。声明 `resizes-content` 后键盘压缩布局视口，输入框落在键盘上方（不认这个 key 的引擎会忽略它）。
+这一条在 Node half 的首帧注入里，**改完要重启 dsh 才生效**。
+
+> 点输入框左边的 `+` 也会弹键盘，那是宿主自己的保焦设计（`dsh-client-ui-conversation` 的
+> `keepDraftFocus` 在工具栏按钮按下时把焦点还给草稿编辑器，避免丢选区），不是本插件的行为。
 
 ### 表格：把宿主的「左右外扩」收掉
 

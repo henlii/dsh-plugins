@@ -1,7 +1,7 @@
 {
   "name": "@henlii/dsh-web-mobile",
-  "version": "0.2.7",
-  "description": "DSH plugin: phone chrome for the shipped dsh web shell. The left and right columns become overlay drawers (no permanent rail), Settings becomes a two-level page stack, and the chat gets phone spacing.",
+  "version": "0.2.8",
+  "description": "DSH plugin: phone chrome for the shipped dsh web shell. The left and right columns become overlay drawers (no permanent rail), Settings becomes a two-level page stack, the chat gets phone spacing, and the layout tracks the visible viewport height (document overflow and keyboard).",
   "type": "module",
   "main": "src/index.js",
   "exports": {

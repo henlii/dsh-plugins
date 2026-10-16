@@ -7,12 +7,18 @@
 // without a phone-width fallback, which means a 390px viewport paints the 52px
 // sidebar rail first and only reflows when the client half runs. Critical CSS +
 // the viewport meta are injected into the served index instead.
+//
+// The injected meta also carries `interactive-widget=resizes-content`: without it
+// Android Chrome's default (`resizes-visual`) keeps the LAYOUT viewport at full
+// height when the soft keyboard opens, so the composer stays behind the keyboard
+// and only the browser's caret-scroll brings it up half way. The key is ignored by
+// engines that do not know it.
 const name = "dsh-web-mobile";
 
 // Injected into <head> ahead of every bundle style: nothing here depends on the
 // client half having run.
 const HEAD = [
-  '<meta data-dshm-head name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />',
+  '<meta data-dshm-head name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />',
   '<meta name="mobile-web-app-capable" content="yes" />',
   '<meta name="apple-mobile-web-app-capable" content="yes" />',
   "<style data-dshm-critical>",
