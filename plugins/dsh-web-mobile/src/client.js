@@ -310,6 +310,43 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 				}
 			};
 
+			// ── 手机上点编辑器工具行的按钮不要弹键盘 ──────────────────────────
+			// 宿主给工具行的每个按钮都挂了「保焦」：onMouseDown → keepDraftFocus()
+			// （event.preventDefault() + editor.focus()），「+」的 onClick 还会再
+			// focusDraftEditor() 一次（dsh-client-ui-conversation）。桌面无感——键盘本来就
+			// 在；手机上是：没在打字时点一下「+」，软键盘被这一下叫出来、挡住半个屏幕。
+			// 这里只做收尾：按下之前焦点不在输入框里，就等宿主两个 handler 跑完把焦点收
+			// 回来（键盘随之收起）；已经在打字（焦点本就在编辑器）则完全不插手——宿主保
+			// 选区、菜单跟着输入过滤都照旧。
+			const composerSeat = () => {
+				const conversation = document.querySelector("[data-conversation-scroll]");
+				return conversation === null ? null : conversation.lastElementChild;
+			};
+			const draftFocused = () => {
+				const active = document.activeElement;
+				if (active === null || active === document.body) return false;
+				return active.isContentEditable === true || active.tagName === "TEXTAREA" || active.tagName === "INPUT";
+			};
+			let composerTapAt = 0;
+			const onComposerPointerDown = (event) => {
+				composerTapAt = 0;
+				if (!document.documentElement.hasAttribute("data-dshm-narrow") || draftFocused()) return;
+				const target = event.target instanceof Element ? event.target : null;
+				const seat = composerSeat();
+				if (target === null || seat === null) return;
+				const button = target.closest("button");
+				if (button === null || !seat.contains(button)) return;
+				composerTapAt = performance.now();
+			};
+			const onComposerClick = () => {
+				if (composerTapAt === 0 || performance.now() - composerTapAt > 700) return;
+				composerTapAt = 0;
+				// 宿主在 mousedown/click 里聚焦；等这一轮事件跑完（下一帧）再收焦点。
+				requestAnimationFrame(() => {
+					if (draftFocused()) document.activeElement?.blur();
+				});
+			};
+
 			// ── 窄屏开关 ─────────────────────────────────────────────────
 			let raf = 0;
 			const sync = () => {
@@ -345,6 +382,9 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 				syncDrawerState();
 			});
 			document.addEventListener("click", onDocumentClick, true);
+			// 冒泡阶段收尾：宿主（React 在 #root 上委派）的 handler 先跑，我们再收焦点。
+			document.addEventListener("pointerdown", onComposerPointerDown, true);
+			document.addEventListener("click", onComposerClick, false);
 			window.addEventListener("resize", schedule);
 			window.addEventListener("orientationchange", schedule);
 
@@ -361,6 +401,8 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 					treeObserver.disconnect();
 					frameObserver.disconnect();
 					document.removeEventListener("click", onDocumentClick, true);
+					document.removeEventListener("pointerdown", onComposerPointerDown, true);
+					document.removeEventListener("click", onComposerClick, false);
 					window.removeEventListener("resize", schedule);
 					window.removeEventListener("orientationchange", schedule);
 					style.remove();
