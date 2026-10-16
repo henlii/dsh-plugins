@@ -298,13 +298,28 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 				for (const panel of settingsPanels) if (!panel.isConnected) settingsPanels.delete(panel);
 			};
 
-			// 抽屉里点中会话 / 面板行 → 收起抽屉（跟 pidance 一致：选完就让位）。
+			// 工作区行尾动作区（`[class*="rowActions"]`）里，「⋯（工作区菜单）」与「新会话」都是
+			// button.iconButton、都没有 aria-haspopup，只能按顺序认：⋯ 在前、新会话在后
+			// （dsh-client-ui-workspace 的 Rows：先 Menu 锚点、再 Tooltip 包着的 + 按钮）。
+			// 点「新会话」要让抽屉让位（马上跳进新会话）；点 ⋯ 不能收——那个菜单不在 portal 里，
+			// 抽屉一收就跟着被藏掉。
+			const isWorkspaceNewSession = (target) => {
+				const slot = target.closest('[class*="projectRow"] [class*="rowActions"]');
+				if (slot === null) return false;
+				const button = target.closest("button");
+				if (button === null) return false;
+				const buttons = slot.querySelectorAll("button");
+				return buttons.length > 0 && button === buttons[buttons.length - 1];
+			};
+
+			// 抽屉里点中会话 / 面板行 / 工作区的「新会话」 → 收起抽屉（跟 pidance 一致：选完就让位）。
 			const onDocumentClick = (event) => {
 				if (!document.documentElement.hasAttribute("data-dshm-narrow")) return;
 				const target = event.target instanceof Element ? event.target : null;
 				if (target === null) return;
 				const col = sidebarCol();
-				if (col !== null && col.contains(target) && target.closest('[class*="sessionRow"],[class*="panelRow"],[class*="newSession"]') !== null) {
+				if (col === null || !col.contains(target)) return;
+				if (target.closest('[class*="sessionRow"],[class*="panelRow"],[class*="newSession"]') !== null || isWorkspaceNewSession(target)) {
 					// 官方自己的点击处理先跑完，再收抽屉，避免打断导航。
 					setTimeout(collapseSidebar, 0);
 				}
