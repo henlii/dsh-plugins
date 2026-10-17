@@ -9,9 +9,9 @@
 
 ## 简介
 
-dsh web 绑 `0.0.0.0` 后，内网设备可以直接连 `/api`，但 dsh 官方的浏览器信任栅栏
-**不是认证层**，且设置、凭据等特权方法（`PRIVILEGED_METHODS`）被钉死在回环 Host。
-本插件补上这一层：
+dsh web 绑一个可达的网卡地址（内网 / Tailscale）后，其它设备就能直接连 `/api`，但
+官方的浏览器信任栅栏**不是认证层**，且设置、凭据等特权方法（`PRIVILEGED_METHODS`）
+被钉死在回环 Host。本插件补上这一层：
 
 1. 给非回环的 `/api` 与 WebSocket 流量加**密码认证**，按真实 socket 对端地址判定，
    Host 头与 `X-Forwarded-For` 伪造无法绕过；
@@ -57,7 +57,7 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | `passwordFile` | `<dsh 配置目录>/web-auth.password` | 密码文件（0600），**优先于** `password`，每次登录实时读取，改完即生效 |
 | `tokenTtlHours` | `12` | 会话 token 有效期（小时） |
 | `tokenFile` | `<dsh 配置目录>/web-auth-tokens.json` | 已签发 token 的持久化文件，服务重启不踢下线 |
-| `lanHosts` | 自动从 `webRuntime.trustedHosts` 派生 | 额外视为回环的 LAN / Tailscale 主机名（客户端 `isLoopback` 补丁用） |
+| `lanHosts` | 自动从 `webStartup.trustedHosts` 派生 | 额外视为回环的 LAN / Tailscale 主机名（客户端 `isLoopback` 补丁用）。dsh 0.2.1-rc.2 之前这个服务叫 `webRuntime`，插件两个名字都认 |
 | `trustLoopbackPaths` | `[]` | 路径前缀列表。命中的前缀上，已认证的 LAN 请求呈现回环外观，用于自带「仅限回环」围栏的路由 |
 | `extraProtectedPaths` | `[]` | 额外拉进密码门的非 `/api` 路径（默认 `/api` 已全部在门后） |
 
@@ -69,9 +69,11 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 「插件」页 → 已安装 → `@henlii/dsh-web-auth`，改密码的下面就是绑定控制；同一张卡片也是
 设置里的独立一页「访问认证」（与「dsh 更新」同一种席位）。
 
-- **绑定地址**：下拉框，只有 `127.0.0.1`（仅本机）与 `0.0.0.0`（所有网卡）两个取值
-  ——官方 `dsh-host-webserver` 的 `host` schema 就是这两个常量，填具体网卡 IP 会被
-  配置校验拒绝。
+- **绑定地址**：下拉框，列出本机网卡地址（IPv4 在前，含回环）。候选由**跑着的
+  `dsh-host-webserver` 自己的 host schema** 逐个过滤，所以列出来的都是当前版本真的
+  接受的值。dsh 0.2.1-rc.2 起该 schema 只接受本机某个具体 IPv4/IPv6 字面量，`0.0.0.0`
+  与 `::` 被拒（官方理由：通配绑定等于把带 RCE 的 API 摆到整个网络上），下拉里也就不再
+  出现通配；更早的版本反过来只接受 `127.0.0.1` / `0.0.0.0`，那时通配仍可选。
 - **端口**：`0-65535`，`0` 表示交回系统随机分配。
 - **当前访问地址**：一行提示，取当前页面的 origin（你在哪个地址访问就显示哪个），改
   端口后与「打开新地址」对照。
@@ -119,11 +121,11 @@ profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fibe
 - 密码是部署级秘密（环境变量 / 0600 文件），GUI 里只写不改读；
 - `trustLoopbackPaths` 只对**已认证**会话生效，且只影响列出的前缀，未带 token 的请求仍然 401。它不提升信任级别：已登录的 LAN 会话本来就能改 settings / 凭据，这里只是让那些自带回环围栏的路由接受同一批人；
 - socket 对端地址是逐请求影子：响应结束（`finish`/`close`）立即摘掉，keep-alive 后续请求按真实对端判定；
-- 绑定控制不绕过官方校验：面板只把选择交给官方 `configEditor`，由它验证候选值、原子写 patch、失败回滚；能改它的会话本来就能改 settings 与凭据（面板自身在密码门之后）。切到 `0.0.0.0` 的后果与官方 `--host 0.0.0.0` 完全相同，因此该控制与密码配置是一体的。
+- 绑定控制不绕过官方校验：面板只把选择交给官方 `configEditor`，由它验证候选值、原子写 patch、失败回滚；能改它的会话本来就能改 settings 与凭据（面板自身在密码门之后）。通配绑定（旧版 dsh 上仍可选）的后果与官方 `--host 0.0.0.0` 完全相同，因此该控制与密码配置是一体的；dsh 0.2.1-rc.2 起服务端本身已拒绝通配绑定。
 
 ## 版本兼容
 
-面向 dsh **0.1.7-rc.2**：
+面向 dsh **0.1.7-rc.2**；0.2.1-rc.2 的两处不兼容改动已适配（见下）。
 
 - 插件卡片挂在「插件」页 → 已安装 → 本插件详情页的 `plugins.detail.section` 槽；
 - 客户端取用 `configForms` / `remote` / `remote.settings` 服务，宿主侧用 `settings.prepareDocument`；
@@ -135,6 +137,24 @@ profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fibe
 面板把控件禁用并显示原因，认证本身不受影响。设置里的独立页注册在 `settings.section`
 （由 `dsh-client-ui-sidebar` 声明）；槽未声明或对应包不在时该页不出现，插件详情页的
 卡片照旧。
+
+### dsh 0.2.1-rc.2
+
+- `webRuntime` 服务改名 `webStartup`（`trustedHosts` 字段不变）。插件先读
+  `webStartup`，读不到再退回 `webRuntime`，两个版本的宿主都能用。
+- `dsh-host-webserver` 的 `host` schema 从「`127.0.0.1` / `0.0.0.0` 两个常量」改成
+  「本机某个具体 IPv4/IPv6 字面量」，`0.0.0.0` / `::` 一律拒绝。绑定下拉因此改为按
+  schema 过滤本机网卡地址。
+
+升级到这里时，如果 profile patch 里还写着 `host: 0.0.0.0`，启动会失败：
+
+```
+webserver: host "0.0.0.0" is an unspecified (wildcard) address, which is not supported
+```
+
+`webserver` 是 required 插件，它激活不了会让所有等 `webServer` / `connection` 的插件
+（本插件、侧边栏、任务板、技能中心等）一起停在「等待服务」，整个 web 端起不来。改成
+本机某个具体地址即可（例如 Tailscale 的 `100.x.y.z` 或内网 `192.168.x.y`）。
 
 ## License
 

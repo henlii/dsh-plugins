@@ -18,7 +18,7 @@
         # 访问密码：优先取环境变量；留空则回退到 passwordFile（/root/.config/dsh/web-auth.password）
         password: !!js process.env.DSH_WEB_AUTH_PASSWORD
         tokenTtlHours: 12
-        # 可选：额外视为回环的 LAN/Tailscale 主机名（默认自动从 webRuntime.trustedHosts 派生）
+        # 可选：额外视为回环的 LAN/Tailscale 主机名（默认自动从 webStartup.trustedHosts 派生）
         # lanHosts: ['myhost.lan', 'myhost.tailnet.ts.net']
 
     - id: web-mobile

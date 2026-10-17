@@ -66,6 +66,17 @@ const webServer = {
 };
 
 const RAW_PORT = { __jsExpr: "ctx.webStartup.port ?? 3080" };
+// 模拟 dsh 0.2.1-rc.2 起的 webserver host schema：只接受具体 IP 字面量，拒绝通配。
+// 面板的候选列表按这个 schema 过滤，避免写出一个服务起不来的 host（实测事故就是
+// patch 里残留 `host: 0.0.0.0` 让 required 插件 webserver 直接激活失败）。
+webServer.constructor = {
+  Config(value) {
+    if (value.host === "0.0.0.0" || value.host === "::") {
+      throw new Error(`webserver: host ${JSON.stringify(value.host)} is an unspecified (wildcard) address`);
+    }
+    return value;
+  }
+};
 const entryConfig = {
   host: "127.0.0.1",
   port: RAW_PORT,
@@ -171,14 +182,18 @@ const freePort = () => new Promise((resolve) => {
 
 let r = await callApi("/api/dsh-web-auth/bind");
 assert.equal(r.res.status, 200);
-assert.deepEqual(r.body, {
-  ok: true,
-  host: "127.0.0.1",
-  port: 3080,
-  editable: true,
-  reason: null,
-  patchPath: configEditor.documentPath
-});
+assert.equal(r.body.ok, true);
+assert.equal(r.body.host, "127.0.0.1");
+assert.equal(r.body.port, 3080);
+assert.equal(r.body.editable, true);
+assert.equal(r.body.reason, null);
+assert.equal(r.body.patchPath, configEditor.documentPath);
+// 候选地址 = 本机网卡 + 回环，逐个过 host schema；通配不在其中。
+assert.ok(Array.isArray(r.body.hosts), "GET 应给出候选绑定地址");
+assert.ok(r.body.hosts.includes("127.0.0.1"), "回环应在候选里");
+assert.ok(!r.body.hosts.includes("0.0.0.0"), "schema 拒绝的通配地址不应出现在候选里");
+const lanHost = r.body.hosts.find((value) => value !== "127.0.0.1" && value !== "::1");
+assert.ok(typeof lanHost === "string" && lanHost.length > 0, "本机应至少有一个非回环地址");
 
 // 非回环、没登录：路由在密码门之后。
 r = await callApi("/api/dsh-web-auth/bind", { peer: "192.0.2.9" });
@@ -194,6 +209,10 @@ edits.length = 0;
 r = await callApi("/api/dsh-web-auth/bind", { method: "POST", body: JSON.stringify({ host: "192.168.1.5", port: 3080 }) });
 assert.equal(r.res.status, 400);
 assert.match(r.body.error, /绑定地址/);
+
+// host schema 现在就拒的值必须在写盘之前挡住（否则服务整个起不来）。
+r = await callApi("/api/dsh-web-auth/bind", { method: "POST", body: JSON.stringify({ host: "0.0.0.0", port: 3080 }) });
+assert.equal(r.res.status, 400);
 
 r = await callApi("/api/dsh-web-auth/bind", { method: "POST", body: JSON.stringify({ host: "127.0.0.1", port: "abc" }) });
 assert.equal(r.res.status, 400);
@@ -222,10 +241,10 @@ await new Promise((resolve) => holder.close(resolve));
 
 // 只改绑定地址：端口那一行的 !!js 表达式必须原样保留（写死等于废掉 --port）。
 edits.length = 0;
-r = await callApi("/api/dsh-web-auth/bind", { method: "POST", body: JSON.stringify({ host: "0.0.0.0", port: 3080 }) });
+r = await callApi("/api/dsh-web-auth/bind", { method: "POST", body: JSON.stringify({ host: lanHost, port: 3080 }) });
 assert.equal(r.res.status, 200);
 assert.equal(edits.length, 1);
-assert.equal(edits[0].next.host, "0.0.0.0");
+assert.equal(edits[0].next.host, lanHost);
 assert.deepEqual(edits[0].next.port, RAW_PORT);
 assert.equal(edits[0].next.compression, "gzip", "未改动的键要原样带回");
 
@@ -255,12 +274,23 @@ r = await callApi("/api/dsh-web-auth/bind", {
   method: "POST",
   peer: "192.0.2.9",
   headers: { cookie },
-  body: JSON.stringify({ host: "0.0.0.0", port: free2 })
+  body: JSON.stringify({ host: lanHost, port: free2 })
 });
 assert.equal(r.res.status, 200);
 assert.equal(edits.length, 1);
-assert.equal(edits[0].next.host, "0.0.0.0");
+assert.equal(edits[0].next.host, lanHost);
 assert.equal(edits[0].next.port, free2);
+
+// ── 旧版 dsh：host schema 放行通配时通配仍应可选 ─────────────────────────────
+
+webServer.constructor = { Config: (value) => value };
+r = await callApi("/api/dsh-web-auth/bind");
+assert.ok(r.body.hosts.includes("0.0.0.0"), "schema 放行时通配应留在候选里");
+edits.length = 0;
+r = await callApi("/api/dsh-web-auth/bind", { method: "POST", body: JSON.stringify({ host: "0.0.0.0", port: 3080 }) });
+assert.equal(r.res.status, 200);
+assert.equal(edits[0].next.host, "0.0.0.0");
+delete webServer.constructor;
 
 // ── 宿主侧不可用 / 写入失败 ─────────────────────────────────────────────────
 

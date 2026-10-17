@@ -252,13 +252,16 @@ window.__ModuleLoader__.load({
 		// 面板只把选择 POST 给宿主，宿主用官方 configEditor 写进当前 profile 的
 		// patch 并重启 webserver fiber。重启关掉旧监听时本页连接一起断，保存响应
 		// 经常回不来，所以网络错误按「已提交」处理，再去探新地址是否真的起来。
-		const BIND_HOST_CHOICES = [
-			{ value: "127.0.0.1", label: "仅本机（127.0.0.1）" },
-			{ value: "0.0.0.0", label: "所有网卡（0.0.0.0）" }
-		];
+		// 候选地址由宿主给（本机网卡 + 回环，逐个过 webserver 的 schema 筛过；
+		// dsh 0.2.1-rc.2 起 0.0.0.0 会被 schema 拒，就不会出现在这里）。
+		const BIND_HOST_LABELS = {
+			"127.0.0.1": "仅本机（127.0.0.1）",
+			"0.0.0.0": "所有网卡（0.0.0.0）"
+		};
 
 		function ServiceBindBlock() {
 			const [state, setState] = react.useState(null);
+			const [hosts, setHosts] = react.useState([]);
 			const [host, setHost] = react.useState("127.0.0.1");
 			const [port, setPort] = react.useState("");
 			const [busy, setBusy] = react.useState(false);
@@ -279,6 +282,7 @@ window.__ModuleLoader__.load({
 							return;
 						}
 						setState(data);
+						if (Array.isArray(data.hosts)) setHosts(data.hosts);
 						if (typeof data.host === "string" && data.host.length > 0) setHost(data.host);
 						if (typeof data.port === "number") setPort(String(data.port));
 					})
@@ -370,7 +374,7 @@ window.__ModuleLoader__.load({
 						className: "dsh-o-input", value: host, disabled: !editable || busy,
 						"aria-label": "绑定地址", style: { flex: 1, minWidth: 0 },
 						onChange: (e) => setHost(e.target.value)
-					}, BIND_HOST_CHOICES.map((choice) => react.createElement("option", { key: choice.value, value: choice.value }, choice.label))),
+					}, (hosts.length > 0 ? hosts : [host]).map((value) => react.createElement("option", { key: value, value }, BIND_HOST_LABELS[value] ?? value))),
 					react.createElement("input", {
 						className: "dsh-o-input", inputMode: "numeric", value: port, disabled: !editable || busy,
 						"aria-label": "端口", placeholder: "端口", style: { width: 110, flex: "0 0 auto" },

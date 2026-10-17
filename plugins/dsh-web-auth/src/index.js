@@ -1,7 +1,7 @@
 // dsh-web-auth host half — password gate + loopback trust rewrite.
 //
-// Why this exists: dsh web binds 0.0.0.0 (Route B) so LAN/Tailscale devices
-// reach /api directly, but dsh pins the privileged configuration plane
+// Why this exists: dsh web binds a reachable interface address (Route B) so LAN/
+// Tailscale devices reach /api directly, but dsh pins the privileged configuration plane
 // (settings/credentials/agentPreset/llm.discoverModels/... — PRIVILEGED_METHODS
 // in dsh-client-connection) to loopback Host. This plugin wraps the webserver
 // /api route and every WebSocket upgrade: non-loopback peers must present a
@@ -30,7 +30,7 @@
 // row's next config into the current profile's patch and reconciles it through
 // the Loader — host/port are composition-time facts with no runtime rebind API.
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, dirname } from "node:path";
@@ -92,7 +92,7 @@ function injectUuidPolyfill(html) {
 // ephemeral "memory" scope (so built-in plugin/settings sections do not
 // render over LAN). The deployment is password-authenticated, so LAN/Tailscale
 // pages should behave like the loopback page. This string-patch adds the
-// deployment's own hostnames (derived from `webRuntime.trustedHosts` plus the
+// deployment's own hostnames (derived from `webStartup.trustedHosts` plus the
 // optional `lanHosts` config) to the client-side predicate. It only affects
 // client-side UI state — server-side auth still keys on the real socket
 // peer address, never on this predicate.
@@ -355,15 +355,17 @@ function apply(ctx, config) {
   const port = webServer.port || 3080;
 
   // LAN/Tailscale hostnames the client-side connection should treat as
-  // loopback: derived from the deployment's own webRuntime.trustedHosts
+  // loopback: derived from the deployment's own `webStartup.trustedHosts`
   // (which carries the bind-derived LAN IP literals plus any --trusted-host
   // names), plus optional explicit `lanHosts` config. Loopback names are
   // filtered out (the patch needle already covers them). Resolved lazily at
   // request time: the loader does not mount rows in strict tree order, so
-  // webRuntime may not be provided yet when this row applies.
+  // webStartup may not be provided yet when this row applies.
+  // dsh 0.2.1-rc.2 renamed this service: it used to be `webRuntime`, carrying
+  // the same `trustedHosts`. Read whichever the running host provides.
   const resolveLanHostnames = () => {
     const hostnames = new Set();
-    const webRuntime = ctx.get("webRuntime");
+    const webRuntime = ctx.get("webStartup") ?? ctx.get("webRuntime");
     if (webRuntime !== void 0 && Array.isArray(webRuntime.trustedHosts)) {
       for (const authority of webRuntime.trustedHosts) {
         const hostname = hostnameOfAuthority(authority);
@@ -1053,7 +1055,45 @@ function apply(ctx, config) {
   // 的 fiber 也作为 webServer 的消费者一起重启，响应在写出之前就随旧 socket
   // 消失。客户端因此把网络错误按「已提交」处理，再自行探测新地址。
   const BIND_ROUTE = "/api/dsh-web-auth/bind";
-  const BIND_HOSTS = ["127.0.0.1", "0.0.0.0"];
+  // host 能不能用由**跑着的 webserver 自己的 Config schema** 判定，不写死版本差异：
+  // dsh 0.2.1-rc.2 起 host 只接受本机某个具体 IPv4/IPv6 字面量（0.0.0.0 与 :: 被
+  // 拒，理由是通配绑定等于把带 RCE 的 API 摆到网络上），更早的版本反过来只接受
+  // 127.0.0.1 / 0.0.0.0。候选 = 本机网卡地址 + 回环 + 通配，逐个过 schema，过不了
+  // 的就不出现在下拉里，避免面板写出一个服务起不来的值。
+  const bindHostAccepted = (candidate) => {
+    const ctor = webServer.constructor;
+    const schema = ctor === void 0 ? void 0 : ctor.Config;
+    // 判定不了（桩 webserver / 官方换实现）就不拦，交给 configEditor 校验。
+    if (typeof schema !== "function") return true;
+    try {
+      schema({ host: candidate, port: 1 });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const bindHostCandidates = () => {
+    // IPv4 排在 IPv6 前面：日常会选的 192.168.x.x / Tailscale 地址在前面，长串地址沉底。
+    const ipv4 = ["127.0.0.1"];
+    const ipv6 = ["::1"];
+    const add = (list, value) => {
+      if (!list.includes(value)) list.push(value);
+    };
+    for (const [name, infos] of Object.entries(networkInterfaces())) {
+      // docker / veth / 网桥这些虚拟网卡不是运维会想绑的地址，噪音居多。
+      if (/^(br-|docker|veth|virbr|vmnet|tap|tun)/.test(name)) continue;
+      for (const info of infos ?? []) {
+        if (info.internal) continue;
+        if (info.family === "IPv6") {
+          // IPv6 链路本地地址不带 zone 无法连接，绑它没有意义。
+          if (!/^fe80:/i.test(info.address)) add(ipv6, info.address);
+          continue;
+        }
+        add(ipv4, info.address);
+      }
+    }
+    return [...ipv4, ...ipv6, "0.0.0.0"].filter(bindHostAccepted);
+  };
   const findWebserverEntry = () => {
     const editor = ctx.get("configEditor");
     if (editor === void 0) return null;
@@ -1089,6 +1129,9 @@ function apply(ctx, config) {
       const boundPort = typeof webServer.port === "number" ? webServer.port : null;
 
       if (req.method === "GET") {
+        const candidates = bindHostCandidates();
+        // 当前绑的值不在候选里也照样报出来：客户端要拿它当默认选中项。
+        if (boundHost !== null && !candidates.includes(boundHost)) candidates.unshift(boundHost);
         let patchPath = null;
         if (found !== null) {
           try {
@@ -1101,6 +1144,7 @@ function apply(ctx, config) {
           ok: true,
           host: boundHost,
           port: boundPort,
+          hosts: candidates,
           editable: found !== null,
           reason: found === null ? bindUnavailable() : null,
           patchPath
@@ -1122,8 +1166,10 @@ function apply(ctx, config) {
       const portValue = body !== null && typeof body === "object" && (typeof body.port === "number" || typeof body.port === "string")
         ? String(body.port).trim()
         : "";
-      if (!BIND_HOSTS.includes(host)) {
-        sendJson(res, 400, { ok: false, error: `绑定地址只支持 ${BIND_HOSTS.join(" 或 ")}（官方 webserver 的 host 只有这两个取值）` });
+      // boundHost 永远放行：它已经在跑（或正在被修），只改端口时不该被地址白名单拦住。
+      const candidates = bindHostCandidates();
+      if (host !== boundHost && !candidates.includes(host)) {
+        sendJson(res, 400, { ok: false, error: `绑定地址只支持本机网卡地址：${candidates.join(" / ")}` });
         return;
       }
       if (!/^\d+$/.test(portValue) || Number(portValue) > 65535) {
