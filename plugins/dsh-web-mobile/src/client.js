@@ -85,7 +85,17 @@ html[data-dshm-narrow] [class*="sessionRow"] [class*="rowActions"]{display:inlin
 html[data-dshm-narrow] textarea,html[data-dshm-narrow] input{font-size:16px!important}
 html[data-dshm-narrow] [role="dialog"]:not(.dshm-settings){max-width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important}
 html[data-dshm-narrow] [data-radix-popper-content-wrapper]{max-width:calc(100vw - 16px)!important}
-html[data-dshm-narrow] .dshm-settings{flex-direction:column!important}
+/* 设置面板铺满可视区。宿主那套是桌面对话框：overlay 用 flex 居中，panel 是
+   width:800px / max-width:calc(100vw - 48px)（手机上左右各留 24px）/ height:min(800px,
+   calc(100vh - 48px))（100vh 是地址栏隐藏高度，居中的面板上下都越界，真机反馈「左右留白、
+   上下超限」）。position:fixed + inset:0 让它脱离居中、贴住可见区左上角；100dvh 给正好可见
+   的高度；圆角去掉、四边到边。上边安全区由面板内 nav/content 各自的 padding 处理（本插件已加），
+   下边在这里补。 */
+html[data-dshm-narrow] .dshm-settings{flex-direction:column!important;position:fixed!important;inset:0!important;width:100%!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important;padding-bottom:env(safe-area-inset-bottom,0px)}
+/* 问答卡片（ask_user）左右不留白：它的 frame 左右各留 var(--dsh-composer-side-clearance) + 16px
+   （默认 24px），窄屏直接顶到边。钩子是宿主自己的 data-question-key（滚动历史里那个「已回答」
+   小行是另一套 .row/.bubble，不受影响）。 */
+html[data-dshm-narrow] [data-question-key]{padding-left:0!important;padding-right:0!important}
 html[data-dshm-narrow] .dshm-settings .dshm-nav{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;overflow:auto;border-right:0!important;padding-top:calc(env(safe-area-inset-top,0px) + 4px);box-sizing:border-box}
 html[data-dshm-narrow] .dshm-settings .dshm-content{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;padding-top:env(safe-area-inset-top,0px);box-sizing:border-box}
 html[data-dshm-narrow] .dshm-settings .dshm-navList{width:100%!important}
