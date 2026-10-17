@@ -91,11 +91,19 @@ html[data-dshm-narrow] [data-radix-popper-content-wrapper]{max-width:calc(100vw 
    上下超限」）。position:fixed + inset:0 让它脱离居中、贴住可见区左上角；100dvh 给正好可见
    的高度；圆角去掉、四边到边。上边安全区由面板内 nav/content 各自的 padding 处理（本插件已加），
    下边在这里补。 */
-html[data-dshm-narrow] .dshm-settings{flex-direction:column!important;position:fixed!important;inset:0!important;width:100%!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important;padding-bottom:env(safe-area-inset-bottom,0px)}
-/* 问答卡片（ask_user）左右不留白：它的 frame 左右各留 var(--dsh-composer-side-clearance) + 16px
-   （默认 24px），窄屏直接顶到边。钩子是宿主自己的 data-question-key（滚动历史里那个「已回答」
-   小行是另一套 .row/.bubble，不受影响）。 */
-html[data-dshm-narrow] [data-question-key]{padding-left:0!important;padding-right:0!important}
+html[data-dshm-narrow] .dshm-settings{flex-direction:column!important;position:fixed!important;inset:0!important;width:100vw!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important;padding-bottom:env(safe-area-inset-bottom,0px)}
+/* 窄屏不占滚动条位、也不画滚动条。宿主给会话与工作区树都写了 scrollbar-gutter:stable，手机浏览器
+   用经典滚动条时那条保留位常驻 ~15px 且不画任何东西——卡片顶到边后就露成「右侧一条间隙」；设置
+   面板是 fixed 到视口的，也会被同一个经典滚动条压窄。手机上本来也不画滚动条，去掉后布局里没有
+   这条保留位。 */
+html[data-dshm-narrow] *{scrollbar-gutter:auto;scrollbar-width:none}
+html[data-dshm-narrow] *::-webkit-scrollbar{width:0;height:0}
+/* 问答卡片（ask_user）与计划审批卡片左右不留白：它们的 frame 左右各留
+   var(--dsh-composer-side-clearance) + 16px（默认 24px），窄屏直接顶到边。钩子是宿主自己的
+   data-question-key / data-plan-review-key（滚动历史里的「已回答」小行是另一套 .row/.bubble，
+   不受影响）。 */
+html[data-dshm-narrow] [data-question-key],
+html[data-dshm-narrow] [data-plan-review-key]{padding-left:0!important;padding-right:0!important}
 html[data-dshm-narrow] .dshm-settings .dshm-nav{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;overflow:auto;border-right:0!important;padding-top:calc(env(safe-area-inset-top,0px) + 4px);box-sizing:border-box}
 html[data-dshm-narrow] .dshm-settings .dshm-content{width:100%!important;max-width:none!important;flex:1 1 auto!important;min-height:0!important;padding-top:env(safe-area-inset-top,0px);box-sizing:border-box}
 html[data-dshm-narrow] .dshm-settings .dshm-navList{width:100%!important}

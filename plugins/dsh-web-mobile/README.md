@@ -22,11 +22,12 @@ dsh web 是桌面三栏（会话 | 对话 | 详情）。窄屏上外壳会把左
 | 目录 / 会话行的行尾按钮 | `hover`（或菜单已开）才出现 | 常驻：触摸设备没有 hover，否则重命名 / 分叉 / 删除没有入口 |
 | 右栏 | 轨道 | 不动：外壳自己就在 <768px 把它做成全宽抽屉 |
 | 设置 | 导航 + 内容左右并排的居中弹窗 | 两级页（一级导航列表，点进去是二级页并带返回，一级有 ✕），并**铺满可视区**：宿主是居中的桌面对话框（左右各留 24px、高度按 `100vh` 算会上下越界），窄屏改成 `position:fixed` 贴住可见区、`100dvh` 定高、去圆角 |
-| 问答卡片（ask_user） | 左右各留 `--dsh-composer-side-clearance + 16px`（默认 24px） | 窄屏顶到边：按宿主自己的 `data-question-key` 去掉 frame 的左右 padding（滚动历史里的「已回答」小行是另一套 `.row/.bubble`，不受影响） |
+| 问答卡片（ask_user）与计划审批卡片 | 左右各留 `--dsh-composer-side-clearance + 16px`（默认 24px） | 窄屏顶到边：按宿主自己的 `data-question-key` / `data-plan-review-key` 去掉 frame 的左右 padding（滚动历史里的「已回答」小行是另一套 `.row/.bubble`，不受影响） |
 | 表格 | ≥4 列的宽表格容器左右外扩并写死 `overflow-x:hidden` | 取消外扩（容器 = 正文列宽），改成可横滚：表格与滚动条都留在会话区内 |
 | 输入框 | 跟随主题 | 16px（iOS 聚焦不再放大页面） |
 | 安全区 | — | `viewport-fit=cover` + `env(safe-area-inset-*)` |
 | 滚动模型 | 文档滚动 + 输入框 `sticky` 贴底 | 不改滚动归属（锁 `html,body` 会破坏输入框的 sticky），只把文档高度校正到可见视口，见下 |
+| 滚动条 | 经典滚动条 + 会话 / 工作区树的 `scrollbar-gutter:stable` 保留位 | 窄屏不占位也不画（`scrollbar-gutter:auto` + `scrollbar-width:none` + 零宽 `::-webkit-scrollbar`）：那条保留位在手机上常驻 ~15px 空白，卡片顶到边后就露成「右侧一条间隙」；设置面板也一并摆脱经典滚动条对视口宽度的挤压 |
 
 判定：**视口宽度 < 1024px**，与外壳自己的窄屏常量 `SIDEBAR_AUTO_COLLAPSE = 1024` 完全一致——
 这是刻意的，否则会出现"外壳已收成细轨、插件还没接管"的中间态。宽视口（≥1024px）**不做任何改动**，
