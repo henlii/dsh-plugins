@@ -36,5 +36,19 @@ dsh-plugins 是插件集合仓库。新增插件请遵循官方 0811 插件规�
 
 ## 发布
 
-- 仓库 `description` 与 `topics` 按官方格式设置（功能词 3-6 个）。
-- 插件可独立发布 npm（`npm publish` 在 `plugins/<name>/`）或保持 git 源安装。
+发包由 CI 完成，**本地不执行 `npm publish`**。
+
+1. 升级 `plugins/<name>/package.json` 的 `version`（该值就是发布版本）。
+2. 打 **annotated** tag，名 `v<插件目录名>-<版本>`（例 `vdsh-web-auth-0.4.0`）。CI 用最后一个 `-`
+   拆出插件目录名与版本并与 `package.json` 比对，不一致直接中止；已推送的 tag 不移动。
+3. 推 tag 触发 `.github/workflows/release.yml`（npm Trusted Publishing / OIDC，不用长期 token）：
+   `npm pack` → 审计（tgz 必须含 `src/` 或 `scripts/`，含 `.env`/`.pem`/`.key`/`node_modules`/`.git`
+   即中止）→ `sha256sum` → `npm publish --provenance`（该版本已存在则跳过）→ GitHub Release
+   （同一 tgz + `.sha256`，已存在则跳过）。
+4. 核验看 `https://registry.npmjs.org/-/package/<pkg>/dist-tags` 与 Release 资产；主 packument
+   （`npm view`）发布后数分钟内可能仍是旧值，不能用作判据。
+
+例外：**新包第一次发布**无法由 CI 引导（npm 没有 pending publisher，包必须先存在才能配 Trusted
+Publisher），需手工 `npm publish` 一次，之后各版本都走 tag。
+
+仓库 `description` 与 `topics` 按官方格式设置（功能词 3-6 个）。
