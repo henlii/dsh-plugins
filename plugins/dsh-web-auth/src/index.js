@@ -35,6 +35,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, dirname } from "node:path";
 import { withFileLock, writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
+import { createMobileProxy } from "./proxy.js";
 
 const name = "dsh-web-auth";
 const inject = ["webServer", "timer"];
@@ -55,6 +56,26 @@ function defaultConfigDir() {
 
 const DEFAULT_TOKEN_FILE = join(defaultConfigDir(), "web-auth-tokens.json");
 const DEFAULT_PASSWORD_FILE = join(defaultConfigDir(), "web-auth.password");
+
+// 手机入口的首次绘制注入：viewport meta（safe-area 生效）+ 窄屏兜底（避免先画
+// 52px 侧栏轨道再回流）。这些与移动端布局客户端半边配套，从 dsh-web-mobile 迁入。
+const MOBILE_HEAD = [
+  '<meta data-dshm-head name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />',
+  '<meta name="mobile-web-app-capable" content="yes" />',
+  '<meta name="apple-mobile-web-app-capable" content="yes" />',
+  "<style data-dshm-critical>",
+  "@media (max-width:1023.98px){",
+  '[class$="frame"]{grid-template-columns:0px minmax(0px,1fr) minmax(0px,0px)!important}',
+  "}",
+  "</style>",
+].join("");
+
+function injectMobileHead(html) {
+  if (html.includes("data-dshm-head")) return html;
+  let out = html.replace(/<meta[^>]+name=["']viewport["'][^>]*>/i, "");
+  out = out.includes("<head>") ? out.replace("<head>", `<head>${MOBILE_HEAD}`) : `${MOBILE_HEAD}${out}`;
+  return out;
+}
 
 // Login throttle. The password is a deployment secret with enough entropy that
 // guessing is impractical over a network, but an unthrottled endpoint still
@@ -972,6 +993,49 @@ function apply(ctx, config) {
   // before the token sweep below so the polyfill survives even if the timer
   // mixin is unavailable.
   ctx.effect(() => webServer.tapIndex(injectUuidPolyfill), "dsh-web-auth: uuid polyfill");
+
+  // 手机入口：webserver 绑回环（或某个具体地址），远程访问一律走这个代理。
+  // 代理把 Host/Origin 改写成上游回环后转发，并在页面注入移动端布局与
+  // `__DSH_TRANSPORT__.ownsHost`（客户端据此判定设置可写）。密码沿用本插件
+  // 的 resolvePassword()：改密码文件即时生效，旧 cookie 随之失效。
+  const mobileOptions = cfg.mobile !== null && typeof cfg.mobile === "object" ? cfg.mobile : {};
+  if (mobileOptions.enabled !== false) {
+    const mobileHost = typeof mobileOptions.host === "string" && mobileOptions.host !== "" ? mobileOptions.host : "0.0.0.0";
+    const mobilePort = Number.isInteger(mobileOptions.port) && mobileOptions.port > 0 && mobileOptions.port <= 65535 ? mobileOptions.port : 3081;
+    ctx.effect(() => webServer.tapIndex(injectMobileHead), "dsh-web-auth: mobile head");
+    const mobileProxy = createMobileProxy({
+      listenHost: mobileHost,
+      port: mobilePort,
+      upstream: {
+        get host() {
+          return webServer.host;
+        },
+        get port() {
+          return webServer.port || port;
+        }
+      },
+      password: () => resolvePassword().password ?? "",
+      secretFile: join(defaultConfigDir(), ".dsh-mobile-secret"),
+      launchToken: () => {
+        try {
+          const connection = ctx.get("connection");
+          if (connection === undefined || typeof connection.authenticatedUrl !== "function") return "";
+          const url = new URL(connection.authenticatedUrl(`http://127.0.0.1:${String(webServer.port || port)}`));
+          return url.searchParams.get("token") ?? "";
+        } catch {
+          return "";
+        }
+      }
+    });
+    mobileProxy.listen().catch((error) => {
+      console.error(
+        `dsh-web-auth: 手机入口无法监听 ${mobileHost}:${String(mobilePort)} —— ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+    ctx.effect(() => () => {
+      void mobileProxy.close();
+    }, "dsh-web-auth: mobile proxy");
+  }
 
   // Settings-document read for the remote "打开配置文件" replacement action.
   // The official settings.openDocument RPC hands the path to a NATIVE opener

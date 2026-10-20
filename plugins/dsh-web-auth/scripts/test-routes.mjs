@@ -127,7 +127,7 @@ const ctx = {
   }
 };
 
-plugin.apply(ctx, { password: "s3cret" });
+plugin.apply(ctx, { password: "s3cret", mobile: { enabled: false } });
 assert.ok(EXACT.has("/api/dsh-web-auth/bind"), "bind 路由应已注册");
 assert.equal(intervals.length, 1, "token 清扫定时器应已挂上");
 

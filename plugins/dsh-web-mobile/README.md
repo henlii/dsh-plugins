@@ -1,3 +1,8 @@
+> **已停止维护（2026-10-20）。** 移动端布局、首绘注入与手机入口代理已并入
+> [`@henlii/dsh-web-auth`](../dsh-web-auth) 0.6.0。本包不再发版，代码保留仅供回退。
+> 迁移：`dsh plugin --profile web remove @henlii/dsh-web-mobile`，然后在 web-auth 的配置里
+> 加 `mobile: { port: 3081 }`（`webserver.host` 保持 `127.0.0.1`）。
+
 <h1 align="center">dsh-web-mobile</h1>
 
 <p align="center">
@@ -47,7 +52,34 @@ dsh plugin --profile web add @henlii/dsh-web-mobile
 CLI 会把它加进 profile 的 `dsh.profile.bundles`，无需手改配置。手动挂法见本仓库根的
 `cordis.patch.yml`，两种方式**二选一**。
 
-零配置：插件没有配置项。
+## 手机入口代理（可选）
+
+插件还能起一个小型反向代理，供手机经局域网 / tailnet 打开：
+
+```yaml
+- id: web-mobile
+  config:
+    host: 0.0.0.0        # 监听地址，默认所有接口
+    port: 3081           # 默认 3081
+    passwordFile: /home/moss/.config/dsh/web-auth.password
+    # 或 password: ...（也可用环境变量 DSH_MOBILE_PASSWORD）
+```
+
+它把入站请求的 `Host` / `Origin` / `Referer` 改写成上游 `127.0.0.1:<port>` 再转发（HTTP 与
+WebSocket 都转发），因此：
+
+- 手机页面被宿主当成回环，设置页走 host 作用域，不再退化成 memory；
+- 首次 `GET /` 且浏览器还没有宿主 `dsh-auth-*` cookie 时，代理用
+  `connection.authenticatedUrl` 取一次性启动 token 注入 URL，宿主据此种 cookie；
+- 页面注入两个垫片：`crypto.randomUUID` / `AbortSignal.any`（非安全上下文缺失）与
+  `__DSH_TRANSPORT__.ownsHost = true`（客户端据此判定可写设置）；
+- 认证在本代理：密码校验后种 `dsh_mobile_auth` cookie（HttpOnly，30 天）。
+
+不配密码不会启动代理（日志提示），避免裸奔。
+
+安全边界：监听 `0.0.0.0` 时，同网络里能到达该端口的人只需要这一个密码；上游 dsh 看到的
+对端是本机，`dsh-web-auth` 的密码门对这条链路不生效。与 `dsh-pocket` 同时开启会抢同一端口
+（都默认 3081），二选一。
 
 ## 实现要点
 

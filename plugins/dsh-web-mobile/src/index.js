@@ -1,18 +1,18 @@
-// dsh-web-mobile host half — this plugin is browser-side: the whole surface is a
-// layer over the shipped web shell (drawer sidebars, two-level Settings, phone
-// spacing). The row exists so the client module rides in the boot manifest.
+// dsh-web-mobile host half — 移动端布局 + 手机入口代理。
 //
-// The one host-side job is the first paint: index.html ships without
-// `viewport-fit=cover` (so `env(safe-area-inset-*)` stays 0 on an iPhone) and
-// without a phone-width fallback, which means a 390px viewport paints the 52px
-// sidebar rail first and only reflows when the client half runs. Critical CSS +
-// the viewport meta are injected into the served index instead.
-//
-// The injected meta also carries `interactive-widget=resizes-content`: without it
-// Android Chrome's default (`resizes-visual`) keeps the LAYOUT viewport at full
-// height when the soft keyboard opens, so the composer stays behind the keyboard
-// and only the browser's caret-scroll brings it up half way. The key is ignored by
-// engines that do not know it.
+// 客户端半边负责窄屏布局（抽屉侧栏、两级设置、手机间距）。宿主半边做两件事：
+// 1. 首次绘制：index.html 不带 `viewport-fit=cover`（iPhone 上 env(safe-area-inset-*)
+//    会一直是 0）也没有手机宽度兜底，390px 视口会先画 52px 侧栏轨道再回流。这里把
+//    critical CSS 与 viewport meta 注入被服务的 index。
+// 2. 可选的手机入口代理：监听一个局域网/tailnet 地址，把 Host/Origin 改写成上游
+//    认的回环 authority 后转发（HTTP + WebSocket），让手机页面拿到 host 作用域的
+//    设置与面板，而不是被当成远程查看器。实现见 proxy.js。
+
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createMobileProxy } from "./proxy.js";
+
 const name = "dsh-web-mobile";
 
 // Injected into <head> ahead of every bundle style: nothing here depends on the
@@ -40,11 +40,83 @@ function injectHead(html) {
   return out;
 }
 
-function apply(ctx) {
-  // A profile without a webserver (non-web app) has nothing to patch; the client
-  // half still arrives through the client bundle.
+function dshHome() {
+  return process.env.DSH_HOME ?? join(homedir(), ".dsh");
+}
+
+function readConfiguredPassword(config) {
+  if (typeof config.password === "string" && config.password !== "") return config.password;
+  const fromEnv = process.env.DSH_MOBILE_PASSWORD;
+  if (typeof fromEnv === "string" && fromEnv !== "") return fromEnv;
+  const file = typeof config.passwordFile === "string" && config.passwordFile !== "" ? config.passwordFile : "";
+  if (file === "") return null;
+  try {
+    const value = readFileSync(file, "utf8").trim();
+    return value === "" ? null : value;
+  } catch {
+    return null;
+  }
+}
+
+function readPort(config) {
+  const value = Number(config.port ?? 3081);
+  return Number.isInteger(value) && value > 0 && value <= 65535 ? value : 3081;
+}
+
+function startProxy(webCtx, config) {
+  const password = readConfiguredPassword(config);
+  if (password === null) {
+    console.warn(
+      "dsh-web-mobile: 手机代理未启动 —— 未配置 password / passwordFile / DSH_MOBILE_PASSWORD。"
+    );
+    return;
+  }
+  const listenHost = typeof config.host === "string" && config.host !== "" ? config.host : "0.0.0.0";
+  const port = readPort(config);
+  const launchToken = () => {
+    try {
+      const connection = webCtx.get("connection");
+      if (connection === undefined || typeof connection.authenticatedUrl !== "function") return "";
+      const url = new URL(connection.authenticatedUrl(`http://127.0.0.1:${String(webCtx.webServer.port)}`));
+      return url.searchParams.get("token") ?? "";
+    } catch {
+      return "";
+    }
+  };
+  const proxy = createMobileProxy({
+    listenHost,
+    port,
+    // 上游用 web server 的真实绑定地址（可能不是回环）；端口在 listen 之后才确定。
+    upstream: {
+      get host() {
+        return webCtx.webServer.host;
+      },
+      get port() {
+        return webCtx.webServer.port;
+      }
+    },
+    password,
+    secretFile: join(dshHome(), ".dsh-mobile-secret"),
+    launchToken,
+    inject: injectHead
+  });
+  proxy.listen().catch((error) => {
+    console.error(
+      `dsh-web-mobile: 手机代理无法监听 ${listenHost}:${String(port)} —— ${error instanceof Error ? error.message : String(error)}`
+    );
+  });
+  webCtx.effect(() => () => {
+    void proxy.close();
+  }, "dsh-web-mobile: mobile proxy");
+}
+
+function apply(ctx, config = {}) {
+  // A profile without a webserver (non-web app) has nothing to patch or proxy;
+  // the client half still arrives through the client bundle.
   ctx.inject(["webServer"], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.tapIndex(injectHead), "dsh-web-mobile: index head");
+    if (config.enabled === false) return;
+    startProxy(webCtx, config);
   });
 }
 
