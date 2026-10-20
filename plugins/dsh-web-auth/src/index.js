@@ -1037,6 +1037,18 @@ function apply(ctx, config) {
         } catch {
           return "";
         }
+      },
+      // 手机代理拿不到宿主的 requestRejection 时会退回「有 cookie 就不补 token」的
+      // 旧判断，浏览器一旦存过失灵 cookie 就卡在 401。所以把宿主谓词透进去。
+      requestRejection: (request) => {
+        try {
+          const connection = ctx.get("connection");
+          const rejection = connection !== undefined ? connection.requestRejection : undefined;
+          if (typeof rejection !== "function") return void 0;
+          return rejection.call(connection, request);
+        } catch {
+          return void 0;
+        }
       }
     });
     mobileProxy.listen().catch((error) => {

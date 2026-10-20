@@ -24,13 +24,19 @@ await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
 const upstreamPort = upstream.address().port;
 
 const secretDir = mkdtempSync(join(tmpdir(), "dshm-proxy-"));
+// 宿主栅栏的替身：只认 `dsh-auth-ok`，其余（含过期/异 authority 的 cookie）回 401。
+const askedHosts = [];
 const proxy = createMobileProxy({
   listenHost: "127.0.0.1",
   port: 0,
   upstream: { host: "127.0.0.1", port: upstreamPort },
   password: "s3cret",
   secretFile: join(secretDir, "secret"),
-  launchToken: () => "tok-123"
+  launchToken: () => "tok-123",
+  requestRejection: (request) => {
+    askedHosts.push(request.headers.host);
+    return /(?:^|;\s*)dsh-auth-ok=/.test(String(request.headers.cookie ?? "")) ? void 0 : 401;
+  }
 });
 const address = await proxy.listen();
 const base = `http://127.0.0.1:${address.port}`;
@@ -79,11 +85,20 @@ assert.equal(first.headers.origin, `http://127.0.0.1:${upstreamPort}`);
 assert.equal(first.headers["sec-fetch-site"], "same-origin");
 assert.match(first.url, /^\/\?token=tok-123&dsh-desktop-mode=compatibility&dsh-desktop-platform=[a-z0-9]+$/, "首次 GET / 应带上游启动 token 与桌面兼容标记");
 
-// 浏览器已持有宿主 cookie：不再注入 token。
+// 浏览器已持有宿主 cookie：宿主说放行时不再注入 token。
 seen.length = 0;
-res = await fetch(`${base}/`, { headers: { cookie: `${cookie}; dsh-auth-abc=1`, accept: "text/html" } });
+askedHosts.length = 0;
+res = await fetch(`${base}/`, { headers: { cookie: `${cookie}; dsh-auth-ok=1`, accept: "text/html" } });
 assert.equal(res.status, 200);
 assert.ok(seen[0].url.startsWith("/?dsh-desktop-mode=compatibility"), "已有 dsh-auth cookie 时不再注入 token，但仍补桌面兼容标记");
+assert.equal(askedHosts[0], `127.0.0.1:${upstreamPort}`, "栅栏判定要看到转发改写后的 Host");
+
+// 宿主说 401（cookie 过期 / 属于另一个 authority）时，即使浏览器带着 dsh-auth-*
+// 也要补启动 token，否则上游只会回纯文本 401，刷新也不恢复。
+seen.length = 0;
+const staleRes = await fetch(`${base}/`, { headers: { cookie: `${cookie}; dsh-auth-stale=1`, accept: "text/html" } });
+assert.equal(staleRes.status, 200);
+assert.match(seen[0].url, /^\/\?token=tok-123/, "宿主判定 401 时仍要注入启动 token");
 
 // HTML 注入两个垫片，且只注入一次。
 const html = await res.text();
@@ -96,7 +111,11 @@ assert.equal(html.match(/data-dshm-proxy-polyfill/g).length, 1);
 seen.length = 0;
 res = await fetch(`${base}/plugins/??@x/client.js&rev=1`, { headers: { cookie: `${cookie}; dsh-auth-probe=1` } });
 assert.equal(res.status, 200);
-assert.ok(seen[0].url.startsWith("/plugins/??@x/client.js&rev=1&dsh-desktop-mode=compatibility"), "组合请求的双问号与顺序必须保留");
+assert.equal(
+  seen[0].url,
+  "/plugins/??@x/client.js&rev=1",
+  "组合请求必须原样转发：双问号不变，且不能追加桌面兼容参数（会被当成模块名 → 404）"
+);
 
 // 非 HTML 响应原样透传。
 seen.length = 0;

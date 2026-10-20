@@ -126,6 +126,8 @@ function parseNext(raw) {
  * @param {string} options.password 访问密码。
  * @param {string} options.secretFile cookie 签名密钥文件。
  * @param {() => string} [options.launchToken] 上游浏览器会话启动 token。
+ * @param {(request: object) => number | undefined} [options.requestRejection]
+ *   上游栅栏判定：传请求（头已按转发改写），回 401 表示需要启动 token。
  * @param {(html: string) => string} [options.inject] 额外的 HTML 注入（在 polyfill 之后）。
  * @param {(message: string) => void} [options.log]
  */
@@ -137,6 +139,7 @@ export function createMobileProxy(options) {
     password,
     secretFile,
     launchToken = () => "",
+    requestRejection,
     inject = (html) => html,
     log = (message) => console.log(`dsh-mobile-proxy: ${message}`)
   } = options;
@@ -166,10 +169,28 @@ export function createMobileProxy(options) {
     return headers;
   };
 
+  // 是否给根路径补上游启动 token。判定要跟上游栅栏的视角一致：代理把 Host/Origin
+  // 改写成回环，所以拿改写后的头去问 requestRejection，只看是否回 401。
+  // 旧写法只看 cookie 是否存在——浏览器留下的过期或异 authority 的 dsh-auth-*
+  // cookie 会让请求跳过 token 重写，上游回 401 纯文本「reopen the URL」，刷新也出不来。
+  const needsLaunchToken = (req) => {
+    if (typeof requestRejection !== "function") return !hasDshAuthCookie(req.headers.cookie);
+    try {
+      return requestRejection({ ...req, headers: forwardHeaders(req) }) === 401;
+    } catch {
+      return !hasDshAuthCookie(req.headers.cookie);
+    }
+  };
+
   // 桌面壳（Electron）的宿主要求非渲染器请求带上这两个标记才放行：没有它们，
   // decideDesktopBrowserAccess 会把它当成渲染器请求，而浏览器没有渲染器 token，
   // 直接拒成 401 / "reopen the URL printed by dsh web"。web profile 会忽略它们。
-  // 前提仍是桌面端打开了「浏览器访问」（dsh-desktop.openBrowser）。
+  //
+  // `/plugins/??a&b` 是打包器的组合请求语法，`&` 分隔的每一项都是模块名；
+  // 追加这两个参数会被当成模块名去解析，宿主回 404，整个客户端模块系统加载失败
+  // （页面报 `HTML did not preload .../client.js`）。所以组合请求一律不加。
+  const isBundleRequest = (pathname) => pathname === "/plugins" || pathname.startsWith("/plugins/");
+
   const withDesktopCompat = (url) => {
     if (url.includes("dsh-desktop-mode=")) return url;
     const separator = url.includes("?") ? "&" : "?";
@@ -241,12 +262,12 @@ export function createMobileProxy(options) {
     // 直接转发原始路径：客户端组合请求是 `/plugins/??pkg/client.js&rev=...`，
     // 用 URL 重建会把双问号压成一个，宿主按组合语法解析失败 → 404。
     let target = req.url ?? "/";
-    if (req.method === "GET" && pathname === "/" && !hasDshAuthCookie(req.headers.cookie)) {
+    if (req.method === "GET" && pathname === "/" && needsLaunchToken(req)) {
       const token = launchToken();
       if (token !== "") target = `/?token=${encodeURIComponent(token)}`;
     }
 
-    target = withDesktopCompat(target);
+    if (!isBundleRequest(pathname)) target = withDesktopCompat(target);
     const wantsHtmlResponse = wantsHtml(req);
     const headers = forwardHeaders(req);
     if (wantsHtmlResponse) delete headers["accept-encoding"];
