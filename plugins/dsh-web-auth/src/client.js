@@ -690,118 +690,82 @@ window.__ModuleLoader__.load({
 			catch { return String(ms); }
 		}
 
-		// ── 服务绑定（host / port）──────────────────────────────────────────
-		// 面板只把选择 POST 给宿主，宿主用官方 configEditor 写进当前 profile 的
-		// patch 并重启 webserver fiber。重启关掉旧监听时本页连接一起断，保存响应
-		// 经常回不来，所以网络错误按「已提交」处理，再去探新地址是否真的起来。
-		// 候选地址由宿主给（本机网卡 + 回环，逐个过 webserver 的 schema 筛过；
-		// dsh 0.2.1-rc.2 起 0.0.0.0 会被 schema 拒，就不会出现在这里）。
-		const BIND_HOST_LABELS = {
-			"127.0.0.1": "仅本机（127.0.0.1）",
-			"0.0.0.0": "所有网卡（0.0.0.0）"
-		};
+		// ── Web 访问（手机 / 远程入口）───────────────────────────────────────
+		// 本地监听固定回环，面板不暴露它；这里配置的是插件自带的代理：开关、端口，
+		// 以及可直接在手机上打开的地址（密码在同一张卡片上半部分）。
+		const ACCESS_ENDPOINT = "/api/dsh-web-auth/access";
 
 		function ServiceBindBlock() {
 			const [state, setState] = react.useState(null);
-			const [hosts, setHosts] = react.useState([]);
-			const [host, setHost] = react.useState("127.0.0.1");
+			const [enabled, setEnabled] = react.useState(true);
 			const [port, setPort] = react.useState("");
 			const [busy, setBusy] = react.useState(false);
 			const [msg, setMsg] = react.useState(null);
-			const [target, setTarget] = react.useState(null);
+			const [copied, setCopied] = react.useState("");
 
 			const load = react.useCallback(() => {
-				return fetch("/api/dsh-web-auth/bind", { credentials: "same-origin", cache: "no-store" })
+				return fetch(ACCESS_ENDPOINT, { credentials: "same-origin", cache: "no-store" })
 					.then((res) => res.json().catch(() => ({})).then((data) => ({ res, data })))
 					.then(({ res, data }) => {
 						if (!res.ok || !data || !data.ok) {
 							setState({
 								editable: false,
 								reason: res.status === 404
-									? "宿主还没加载绑定接口（重启 dsh 后可用）"
-									: (data && data.error) || "无法读取绑定状态"
+									? "宿主还没加载访问配置接口（重启 dsh 后可用）"
+									: (data && data.error) || "无法读取访问配置"
 							});
 							return;
 						}
 						setState(data);
-						if (Array.isArray(data.hosts)) setHosts(data.hosts);
-						if (typeof data.host === "string" && data.host.length > 0) setHost(data.host);
+						if (typeof data.enabled === "boolean") setEnabled(data.enabled);
 						if (typeof data.port === "number") setPort(String(data.port));
 					})
 					.catch(() => setState({ editable: false, reason: "无法连接服务器" }));
 			}, []);
 			react.useEffect(() => { void load(); }, [load]);
 
-			// 重启期间旧 origin 会有几百毫秒不可达，重试几次再下结论。
-			const reloadState = async (attempts) => {
-				for (let i = 0; i < attempts; i += 1) {
-					await new Promise((resolve) => setTimeout(resolve, 600));
-					const alive = await fetch("/api/dsh-web-auth/bind", { credentials: "same-origin", cache: "no-store" })
-						.then((res) => res.ok, () => false);
-					if (alive) { await load(); return; }
-				}
-			};
-			// 跨源读不到响应，但 opaque 请求成功/失败本身就能说明「有没有东西在听」。
-			const reachable = (url, attempts) => {
-				const probe = (attempt) => fetch(url, { mode: "no-cors", cache: "no-store" })
-					.then(() => true, () => attempt + 1 < attempts
-						? new Promise((resolve) => setTimeout(resolve, 700)).then(() => probe(attempt + 1))
-						: false);
-				return probe(0);
-			};
-
-			const applied = (result) => {
-				const nextPort = typeof result.port === "number" ? result.port : Number(port);
-				const previous = state === null ? null : state.port;
-				if (typeof previous === "number" && previous === nextPort) {
-					setMsg({ kind: "ok", text: "已保存，服务正在按新配置重启监听…" });
-					void reloadState(6);
-					return;
-				}
-				if (nextPort === 0) {
-					setMsg({ kind: "info", text: "已保存：端口交回系统随机分配，重启 dsh 后需在本机日志里看实际端口。" });
-					return;
-				}
-				const url = `http://${window.location.hostname}:${String(nextPort)}/`;
-				setTarget({ url });
-				setMsg({ kind: "info", text: `已提交，服务正在 ${url} 重启监听…` });
-				void reachable(url, 8).then((ok) => {
-					setMsg(ok
-						? { kind: "ok", text: `已生效：${url}` }
-						: { kind: "err", text: `新地址暂时不通（${url}）。端口被占用时改动会自动回滚，可回到原地址确认。` });
-				});
-			};
-
 			const save = () => {
 				if (busy || state === null || state.editable !== true) return;
 				const value = port.trim();
-				if (!/^\d+$/.test(value) || Number(value) > 65535) {
-					setMsg({ kind: "err", text: "端口要是 0-65535 的整数（0 = 由系统分配）" });
+				if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) {
+					setMsg({ kind: "err", text: "入口端口要是 1-65535 的整数" });
 					return;
 				}
-				const nextPort = Number(value);
-				setBusy(true); setMsg(null); setTarget(null);
-				fetch("/api/dsh-web-auth/bind", {
+				setBusy(true); setMsg(null);
+				fetch(ACCESS_ENDPOINT, {
 					method: "POST",
 					credentials: "same-origin",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ host, port: nextPort })
+					body: JSON.stringify({ enabled, port: Number(value) })
 				}).then((res) => res.json().catch(() => ({})).then((data) => ({ res, data })))
 					.then(({ res, data }) => {
-						if (res.ok && data && data.ok) { applied(data); return; }
-						if (res.status === 404 || res.status === 405) {
-							setMsg({ kind: "err", text: "宿主还没加载绑定接口（重启 dsh 后可用）" });
+						if (res.ok && data && data.ok) {
+							setState(data);
+							if (typeof data.port === "number") setPort(String(data.port));
+							const first = Array.isArray(data.urls) && data.urls.length > 0 ? data.urls[0] : null;
+							setMsg(first === null
+								? { kind: "ok", text: "已保存：入口已关闭" }
+								: { kind: "ok", text: `已保存：手机访问 ${first}` });
 							return;
 						}
 						setMsg({ kind: "err", text: (data && data.error) || `保存失败（HTTP ${String(res.status)}）` });
 					})
-					// 连接被重启切断：宿主那边多半已经写成功，按已提交处理并去探新地址。
-					.catch(() => applied({ host, port: nextPort }))
+					.catch(() => setMsg({ kind: "err", text: "无法连接服务器" }))
 					.finally(() => setBusy(false));
+			};
+
+			const copy = (url) => {
+				if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+					navigator.clipboard.writeText(url).then(
+						() => { setCopied(url); setTimeout(() => setCopied(""), 1500); },
+						() => {}
+					);
+				}
 			};
 
 			const editable = state !== null && state.editable === true;
 			const reason = state !== null && state.editable !== true ? state.reason : null;
+			const urls = state !== null && Array.isArray(state.urls) ? state.urls : [];
 			const tone = msg === null
 				? null
 				: msg.kind === "err" ? "var(--dsw-alias-label-error)"
@@ -809,31 +773,38 @@ window.__ModuleLoader__.load({
 						: "var(--dsw-alias-label-secondary)";
 
 			return react.createElement(react.Fragment, null,
-				react.createElement("div", { style: { color: "var(--dsw-alias-label-primary)", fontWeight: 500, margin: "14px 0 6px" } }, "服务绑定"),
-				react.createElement("p", { className: "dsh-o-status", style: { margin: "0 0 8px" } }, `当前访问地址：${window.location.origin}/`),
-				react.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
-					react.createElement("select", {
-						className: "dsh-o-input", value: host, disabled: !editable || busy,
-						"aria-label": "绑定地址", style: { flex: 1, minWidth: 0 },
-						onChange: (e) => setHost(e.target.value)
-					}, (hosts.length > 0 ? hosts : [host]).map((value) => react.createElement("option", { key: value, value }, BIND_HOST_LABELS[value] ?? value))),
+				react.createElement("div", { style: { color: "var(--dsw-alias-label-primary)", fontWeight: 500, margin: "14px 0 6px" } }, "Web 访问"),
+				react.createElement("label", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 13 } },
 					react.createElement("input", {
-						className: "dsh-o-input", inputMode: "numeric", value: port, disabled: !editable || busy,
-						"aria-label": "端口", placeholder: "端口", style: { width: 110, flex: "0 0 auto" },
+						type: "checkbox", checked: enabled, disabled: !editable || busy,
+						onChange: (e) => setEnabled(e.target.checked)
+					}),
+					"启用手机 / 远程访问"),
+				react.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 8 } },
+					react.createElement("input", {
+						className: "dsh-o-input", inputMode: "numeric", value: port,
+						disabled: !editable || busy || !enabled,
+						"aria-label": "入口端口", placeholder: "端口", style: { width: 120 },
 						onChange: (e) => setPort(e.target.value),
 						onKeyDown: (e) => { if (e.key === "Enter") save(); }
-					})),
-				react.createElement("div", { className: "dsh-o-footer", style: { borderTop: "none", padding: "4px 0 0", justifyContent: "flex-start" } },
+					}),
 					react.createElement("button", {
 						type: "button", className: "dsh-o-btn dsh-o-btn-save", disabled: !editable || busy, onClick: save
-					}, busy ? "提交中…" : "保存绑定"),
-					target === null ? null : react.createElement("a", {
-						className: "dsh-o-btn dsh-o-btn-discard", href: target.url, style: { textDecoration: "none" }
-					}, "打开新地址")),
+					}, busy ? "提交中…" : "保存")),
+				enabled && urls.length > 0 ? react.createElement("ul", {
+					style: { listStyle: "none", margin: "0 0 8px", padding: 0, display: "flex", flexDirection: "column", gap: 6 }
+				}, urls.map((url) => react.createElement("li", {
+					key: url, style: { display: "flex", alignItems: "center", gap: 8, fontSize: 12 }
+				},
+					react.createElement("a", { href: url, style: { color: "var(--dsw-alias-brand-text)", wordBreak: "break-all" } }, url),
+					react.createElement("button", {
+						type: "button", className: "dsh-o-btn dsh-o-btn-discard", style: { flex: "0 0 auto" },
+						onClick: () => copy(url)
+					}, copied === url ? "已复制" : "复制")))) : null,
 				reason === null ? null : react.createElement("p", { className: "dsh-o-status", style: { margin: "6px 0 0" } }, reason),
 				msg === null ? null : react.createElement("p", { style: { margin: "6px 0 0", color: tone, fontSize: 12, lineHeight: 1.5 } }, msg.text),
 				react.createElement("p", { className: "dsh-o-status", style: { marginTop: 6 } },
-					"绑定写入当前 profile 的 patch。保存后 webserver 重启监听：本页连接会断开，改端口时请用新地址重新打开。"));
+					"手机与上面的密码一起使用；本机回环（127.0.0.1）访问不需要密码。修改端口后入口按新端口重新监听。"));
 		}
 
 		function AuthInfoCard() {

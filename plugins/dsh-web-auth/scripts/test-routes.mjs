@@ -88,6 +88,14 @@ const entryConfig = {
 const webserverEntry = {
   options: { id: "webserver", name: "@deepseek-ai/dsh-host-webserver", config: entryConfig }
 };
+// 本插件自己的行：Web 访问配置写进它的 mobile。
+const webAuthEntry = {
+  options: {
+    id: "web-auth",
+    name: "@henlii/dsh-web-auth",
+    config: { passwordFile: "/tmp/none", mobile: { enabled: true, port: 3081 } }
+  }
+};
 // 官方的 connection 行：绑定地址同步写入它的 trustedHosts。
 const connectionEntry = {
   options: {
@@ -101,7 +109,7 @@ let editorAvailable = true;
 let editError = null;
 const configEditor = {
   documentPath: join(testHome, "profiles", "web", "cordis.patch.yml"),
-  entries: () => [webserverEntry, connectionEntry],
+  entries: () => [webserverEntry, connectionEntry, webAuthEntry],
   async edit(entry, change) {
     if (editError !== null) throw editError;
     edits.push({ id: entry.options.id, next: change(entry.options.config, {}) });
@@ -399,5 +407,24 @@ r = await callApi("/api/task-board/state", { peer: "127.0.0.1", headers: { host:
 assert.equal(r.res.status, 200);
 assert.equal(seen[0].host, "127.0.0.1:3080");
 assert.equal(seen[0].peer, "127.0.0.1");
+
+// ── Web 访问配置：只配代理入口，不暴露本地回环绑定 ─────────────────────────
+r = await callApi("/api/dsh-web-auth/access");
+assert.equal(r.res.status, 200);
+assert.equal(r.body.enabled, true);
+assert.equal(r.body.port, 3081);
+assert.ok(Array.isArray(r.body.urls) && r.body.urls.every((url) => url.startsWith("http://")), "入口地址列表");
+assert.ok(!("host" in r.body) || r.body.host === "0.0.0.0", "面板不暴露回环绑定");
+
+edits.length = 0;
+r = await callApi("/api/dsh-web-auth/access", { method: "POST", body: JSON.stringify({ enabled: true, port: 3099 }) });
+assert.equal(r.res.status, 200);
+const accessEdit = edits.find((item) => item.id === "web-auth");
+assert.equal(accessEdit.next.mobile.port, 3099, "入口端口写进 mobile.port");
+assert.equal(accessEdit.next.mobile.enabled, true);
+
+// 与 dsh 本体同端口：写文件之前就拒。
+r = await callApi("/api/dsh-web-auth/access", { method: "POST", body: JSON.stringify({ enabled: true, port: 3080 }) });
+assert.equal(r.res.status, 400);
 
 console.log("dsh-web-auth route checks: OK");

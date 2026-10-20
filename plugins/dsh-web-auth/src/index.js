@@ -1336,6 +1336,110 @@ function apply(ctx, config) {
     },
   }), "dsh-web-auth: bind route");
 
+  // ── Web 访问（手机 / 远程入口）────────────────────────────────────────────
+  // 本地监听固定回环，面板不暴露它；这里只配置插件自带的代理：开关 + 端口，以及
+  // 可直接在手机上打开的地址。写的是本插件自己的 `mobile` 配置，改完 Loader 会
+  // 重跑本插件的 apply，代理随之按新端口重启。
+  const ACCESS_ROUTE = "/api/dsh-web-auth/access";
+  const findEntryById = (id) => {
+    const editor = ctx.get("configEditor");
+    if (editor === void 0) return null;
+    try {
+      const entry = editor.entries().find((item) => item !== void 0 && item.options !== void 0 && item.options.id === id);
+      return entry === void 0 ? null : { editor, entry };
+    } catch {
+      return null;
+    }
+  };
+  const readMobileConfig = (fallback) => {
+    const found = findEntryById("web-auth");
+    const config = found === null ? void 0 : found.entry.options.config;
+    const declared = config !== null && typeof config === "object" ? config.mobile : void 0;
+    const source = declared !== null && typeof declared === "object" ? declared : (fallback !== null && typeof fallback === "object" ? fallback : {});
+    return {
+      enabled: source.enabled !== false,
+      host: typeof source.host === "string" && source.host !== "" ? source.host : "0.0.0.0",
+      port: Number.isInteger(source.port) && source.port > 0 ? source.port : 3081
+    };
+  };
+  const accessUrls = (mobile) => {
+    const urls = [];
+    const push = (host) => {
+      const url = `http://${host}:${String(mobile.port)}/`;
+      if (!urls.includes(url)) urls.push(url);
+    };
+    if (mobile.host !== "0.0.0.0" && mobile.host !== "::") push(mobile.host);
+    else {
+      // 只列真正可达的网卡：docker / veth / 网桥 / TUN 这些虚拟接口列出来只会误导。
+      for (const [name, infos] of Object.entries(networkInterfaces())) {
+        if (/^(br-|docker|veth|virbr|vmnet|tap|tun|lo|Meta)/i.test(name)) continue;
+        for (const info of infos ?? []) {
+          if (info.internal || info.family !== "IPv4") continue;
+          push(info.address);
+        }
+      }
+    }
+    return urls;
+  };
+  const accessPayload = (mobile) => ({
+    ok: true,
+    enabled: mobile.enabled,
+    host: mobile.host,
+    port: mobile.port,
+    urls: mobile.enabled ? accessUrls(mobile) : []
+  });
+
+  ctx.effect(() => webServer.register({
+    kind: "exact",
+    path: ACCESS_ROUTE,
+    handler: async (req, res) => {
+      const found = findEntryById("web-auth");
+      if (req.method === "GET") {
+        sendJson(res, 200, { ...accessPayload(readMobileConfig(cfg.mobile)), editable: found !== null });
+        return;
+      }
+      if (req.method !== "POST") {
+        sendJson(res, 405, { ok: false, error: "method not allowed" });
+        return;
+      }
+      if (found === null) {
+        sendJson(res, 503, { ok: false, error: "当前插件树里没有 web-auth 行，无法在面板修改访问配置" });
+        return;
+      }
+      let body = null;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        /* 交给下面的字段校验 */
+      }
+      const enabled = body !== null && typeof body === "object" && typeof body.enabled === "boolean" ? body.enabled : true;
+      const portValue = body !== null && typeof body === "object" && (typeof body.port === "number" || typeof body.port === "string")
+        ? String(body.port).trim()
+        : "";
+      if (!/^\d+$/.test(portValue) || Number(portValue) < 1 || Number(portValue) > 65535) {
+        sendJson(res, 400, { ok: false, error: "入口端口要是 1-65535 的整数" });
+        return;
+      }
+      const nextPort = Number(portValue);
+      if (nextPort === (webServer.port || port)) {
+        sendJson(res, 400, { ok: false, error: "手机入口不能和 dsh 本体的端口相同" });
+        return;
+      }
+      try {
+        await runOutsideHmrTransaction(() => found.editor.edit(found.entry, (current) => {
+          const next = { ...current };
+          const mobile = current.mobile !== null && typeof current.mobile === "object" ? current.mobile : {};
+          next.mobile = { ...mobile, enabled, port: nextPort };
+          return next;
+        }));
+      } catch (error) {
+        sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      sendJson(res, 200, accessPayload({ enabled, host: readMobileConfig(cfg.mobile).host, port: nextPort }));
+    }
+  }), "dsh-web-auth: access route");
+
   try {
     ctx.interval(() => {
       const now = Date.now();

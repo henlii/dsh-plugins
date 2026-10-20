@@ -69,7 +69,7 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | `builtinLoopbackPaths` | `true` | 内置的自围栏插件路径（`/api/task-board`、`/api/dsh-skill-explorer`）。命中的已认证 LAN 请求呈现回环外观，装插件即可用；设为 `false` 清空内置清单 |
 | `trustLoopbackPaths` | `[]` | 额外路径前缀列表，在 `builtinLoopbackPaths` 之上追加。适合其他自带「仅限回环」围栏、且不依赖宿主 authority cookie 的第三方路由 |
 | `extraProtectedPaths` | `[]` | 额外拉进密码门的非 `/api` 路径（默认 `/api` 已全部在门后） |
-| `mobile` | `{ enabled: true, host: "0.0.0.0", port: 3081 }` | 手机入口代理的监听地址与端口；密码沿用 `password`/`passwordFile`。`enabled: false` 关闭 |
+| `mobile` | `{ enabled: true, host: "0.0.0.0", port: 3081 }` | 手机入口代理的监听地址与端口；密码沿用 `password`/`passwordFile`。`enabled: false` 关闭。面板的「Web 访问」可开关、改端口并列出可访问地址，不暴露本地回环保定 |
 
 `<dsh 配置目录>`：`DSH_HOME` 优先，Windows 为 `%APPDATA%\dsh`，其余为
 `$XDG_CONFIG_HOME/dsh`（通常 `~/.config/dsh`）。
