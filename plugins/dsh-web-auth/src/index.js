@@ -743,11 +743,23 @@ function apply(ctx, config) {
   // that token, so the index request is rewritten to carry it once. The token
   // rotates every process start, so it is read live from the connection
   // service (older hosts without that method return empty and nothing changes).
+  let warnedNoToken = false;
   const launchToken = () => {
     try {
       const connection = ctx.get("connection");
       const fn = connection?.authenticatedUrl;
-      if (typeof fn !== "function") return "";
+      if (typeof fn !== "function") {
+        // desktop profile（Electron 壳）没有可供第三方读取的会话签发入口：壳用自己的
+        // 签名 cookie 注入页面。代理拿不到启动 token，转发的根路径就会被宿主拒成 401
+        // "reopen the URL printed by dsh web"，远程访问只能改用 web profile。
+        if (!warnedNoToken) {
+          warnedNoToken = true;
+          console.warn(
+            "dsh-web-auth: 宿主未提供 connection.authenticatedUrl —— 手机入口无法为浏览器换发会话 cookie（desktop 壳的授权是私有的，远程访问请改用 web profile）"
+          );
+        }
+        return "";
+      }
       const url = new URL(fn.call(connection, `http://127.0.0.1:${port}`));
       return url.searchParams.get("token") ?? "";
     } catch {

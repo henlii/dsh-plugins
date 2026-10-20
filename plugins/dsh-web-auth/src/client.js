@@ -804,7 +804,7 @@ window.__ModuleLoader__.load({
 				reason === null ? null : react.createElement("p", { className: "dsh-o-status", style: { margin: "6px 0 0" } }, reason),
 				msg === null ? null : react.createElement("p", { style: { margin: "6px 0 0", color: tone, fontSize: 12, lineHeight: 1.5 } }, msg.text),
 				react.createElement("p", { className: "dsh-o-status", style: { marginTop: 6 } },
-					"手机与上面的密码一起使用；本机回环（127.0.0.1）访问不需要密码。修改端口后入口按新端口重新监听。"));
+					"手机与上面的密码一起使用；本机回环（127.0.0.1）访问不需要密码。桌面端（Electron）还要在应用设置里打开「浏览器访问」并重启，宿主才允许浏览器进来。"));
 		}
 
 		function AuthInfoCard() {

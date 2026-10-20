@@ -166,6 +166,16 @@ export function createMobileProxy(options) {
     return headers;
   };
 
+  // 桌面壳（Electron）的宿主要求非渲染器请求带上这两个标记才放行：没有它们，
+  // decideDesktopBrowserAccess 会把它当成渲染器请求，而浏览器没有渲染器 token，
+  // 直接拒成 401 / "reopen the URL printed by dsh web"。web profile 会忽略它们。
+  // 前提仍是桌面端打开了「浏览器访问」（dsh-desktop.openBrowser）。
+  const withDesktopCompat = (url) => {
+    if (url.includes("dsh-desktop-mode=")) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}dsh-desktop-mode=compatibility&dsh-desktop-platform=${encodeURIComponent(process.platform)}`;
+  };
+
   const wantsHtml = (req) => req.method === "GET" && /text\/html/i.test(String(req.headers.accept ?? ""));
 
   const htmlInject = (html) => {
@@ -236,6 +246,7 @@ export function createMobileProxy(options) {
       if (token !== "") target = `/?token=${encodeURIComponent(token)}`;
     }
 
+    target = withDesktopCompat(target);
     const wantsHtmlResponse = wantsHtml(req);
     const headers = forwardHeaders(req);
     if (wantsHtmlResponse) delete headers["accept-encoding"];

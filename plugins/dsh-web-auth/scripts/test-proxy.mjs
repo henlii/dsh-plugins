@@ -77,13 +77,13 @@ const first = seen[0];
 assert.equal(first.headers.host, `127.0.0.1:${upstreamPort}`, "Host 应改写为上游回环 authority");
 assert.equal(first.headers.origin, `http://127.0.0.1:${upstreamPort}`);
 assert.equal(first.headers["sec-fetch-site"], "same-origin");
-assert.equal(first.url, "/?token=tok-123", "首次 GET / 应带上游启动 token");
+assert.match(first.url, /^\/\?token=tok-123&dsh-desktop-mode=compatibility&dsh-desktop-platform=[a-z0-9]+$/, "首次 GET / 应带上游启动 token 与桌面兼容标记");
 
 // 浏览器已持有宿主 cookie：不再注入 token。
 seen.length = 0;
 res = await fetch(`${base}/`, { headers: { cookie: `${cookie}; dsh-auth-abc=1`, accept: "text/html" } });
 assert.equal(res.status, 200);
-assert.equal(seen[0].url, "/", "已有 dsh-auth cookie 时不应重复注入 token");
+assert.ok(seen[0].url.startsWith("/?dsh-desktop-mode=compatibility"), "已有 dsh-auth cookie 时不再注入 token，但仍补桌面兼容标记");
 
 // HTML 注入两个垫片，且只注入一次。
 const html = await res.text();
@@ -96,7 +96,7 @@ assert.equal(html.match(/data-dshm-proxy-polyfill/g).length, 1);
 seen.length = 0;
 res = await fetch(`${base}/plugins/??@x/client.js&rev=1`, { headers: { cookie: `${cookie}; dsh-auth-probe=1` } });
 assert.equal(res.status, 200);
-assert.equal(seen[0].url, "/plugins/??@x/client.js&rev=1");
+assert.ok(seen[0].url.startsWith("/plugins/??@x/client.js&rev=1&dsh-desktop-mode=compatibility"), "组合请求的双问号与顺序必须保留");
 
 // 非 HTML 响应原样透传。
 seen.length = 0;
