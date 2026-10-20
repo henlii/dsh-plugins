@@ -426,8 +426,7 @@ assert.equal(r.res.status, 200);
 const accessEdit = edits.find((item) => item.id === "web-auth");
 assert.equal(accessEdit.next.mobile.port, 3099, "入口端口写进 mobile.port");
 assert.equal(accessEdit.next.mobile.enabled, true);
-const desktopEdit = edits.find((item) => item.id === "web-runtime");
-assert.equal(desktopEdit.next.openBrowser, true, "同一个开关也要打开桌面端的浏览器访问");
+assert.equal(edits.find((item) => item.id === "web-runtime"), undefined, "不再写 web-runtime（openBrowser 会带来启动弹窗）");
 
 // 与 dsh 本体同端口：写文件之前就拒。
 r = await callApi("/api/dsh-web-auth/access", { method: "POST", body: JSON.stringify({ enabled: true, port: 3080 }) });

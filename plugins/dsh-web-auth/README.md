@@ -69,7 +69,7 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | `builtinLoopbackPaths` | `true` | 内置的自围栏插件路径（`/api/task-board`、`/api/dsh-skill-explorer`）。命中的已认证 LAN 请求呈现回环外观，装插件即可用；设为 `false` 清空内置清单 |
 | `trustLoopbackPaths` | `[]` | 额外路径前缀列表，在 `builtinLoopbackPaths` 之上追加。适合其他自带「仅限回环」围栏、且不依赖宿主 authority cookie 的第三方路由 |
 | `extraProtectedPaths` | `[]` | 额外拉进密码门的非 `/api` 路径（默认 `/api` 已全部在门后） |
-| `mobile` | `{ enabled: true, host: "0.0.0.0", port: 3081 }` | 手机入口代理的监听地址与端口；密码沿用 `password`/`passwordFile`。`enabled: false` 关闭。面板的「Web 访问」可开关、改端口并列出可访问地址，不暴露本地回环保定。面板上的这个开关同时写 `web-runtime.openBrowser`（desktop profile 的「浏览器访问」闸门），改完需重启 DSH Desktop 生效；不打开它，宿主会把浏览器请求当成渲染器请求拒掉（`reopen the URL printed by dsh web`）。`web` profile 没有这道闸门 |
+| `mobile` | `{ enabled: true, host: "0.0.0.0", port: 3081 }` | 手机入口代理的监听地址与端口；密码沿用 `password`/`passwordFile`。`enabled: false` 关闭。面板的「Web 访问」可开关、改端口并列出可访问地址，不暴露本地回环保定。desktop profile（Electron 壳）还要在应用设置里打开一次「浏览器访问」（对应 `web-runtime.openBrowser`，同时会开启启动时自动打开浏览器），否则宿主会把浏览器请求当成渲染器请求拒掉（`reopen the URL printed by dsh web`）。`web` profile 没有这道闸门，插件不会去写它 |
 
 `<dsh 配置目录>`：`DSH_HOME` 优先，Windows 为 `%APPDATA%\dsh`，其余为
 `$XDG_CONFIG_HOME/dsh`（通常 `~/.config/dsh`）。

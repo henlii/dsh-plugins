@@ -1393,26 +1393,12 @@ function apply(ctx, config) {
     }
     return urls;
   };
-  // 桌面端（Electron 壳）另有一道「浏览器访问」闸门：web-runtime 的 openBrowser。
-  // 面板上的一个开关要管到底，所以这里一并读写它；null 表示这个 profile 没有 web-runtime
-  // 行（web profile），不需要这道闸门。
-  const readDesktopOpen = () => {
-    const runtime = findEntryById("web-runtime");
-    if (runtime === null) return null;
-    const config = runtime.entry.options.config;
-    // 只有显式声明过 openBrowser 的 profile（desktop 会把这道闸门写进 patch）才归这个
-    // 开关管。web profile 的 web-runtime 行是 bundle 自带、没有这个键——那里写 true 会
-    // 让服务端启动时去开浏览器，纯属副作用。
-    if (config === null || typeof config !== "object" || !Object.prototype.hasOwnProperty.call(config, "openBrowser")) return null;
-    return config.openBrowser === true;
-  };
   const accessPayload = (mobile) => ({
     ok: true,
     enabled: mobile.enabled,
     host: mobile.host,
     port: mobile.port,
-    urls: mobile.enabled ? accessUrls(mobile) : [],
-    desktopOpen: readDesktopOpen()
+    urls: mobile.enabled ? accessUrls(mobile) : []
   });
 
   ctx.effect(() => webServer.register({
@@ -1462,27 +1448,7 @@ function apply(ctx, config) {
         sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
         return;
       }
-      // 同一个开关也管桌面端的「浏览器访问」：只开代理不开它，请求到了宿主还是会被
-      // decideDesktopBrowserAccess 拒掉。写失败不阻塞代理配置，但要在响应里说清楚。
-      let desktop = { applied: false, reason: null };
-      const runtime = findEntryById("web-runtime");
-      if (runtime !== null && readDesktopOpen() !== null) {
-        const current = runtime.entry.options.config;
-        const openNow = current !== null && typeof current === "object" && current.openBrowser === true;
-        if (openNow === enabled) desktop.applied = true;
-        else {
-          try {
-            await runOutsideHmrTransaction(() => runtime.editor.edit(runtime.entry, (entry) => ({ ...entry, openBrowser: enabled })));
-            desktop.applied = true;
-          } catch (error) {
-            desktop.reason = error instanceof Error ? error.message : String(error);
-          }
-        }
-      }
-      sendJson(res, 200, {
-        ...accessPayload({ enabled, host: readMobileConfig(cfg.mobile).host, port: nextPort }),
-        desktop
-      });
+      sendJson(res, 200, accessPayload({ enabled, host: readMobileConfig(cfg.mobile).host, port: nextPort }));
     }
   }), "dsh-web-auth: access route");
 
