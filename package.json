@@ -9,5 +9,8 @@
     "check": "node --check plugins/dsh-web-auth/src/index.js && node --check plugins/dsh-web-auth/src/client.js && node --check plugins/dsh-web-auth/scripts/test-routes.mjs && node --check plugins/dsh-web-mobile/src/index.js && node --check plugins/dsh-web-mobile/src/client.js && node --check plugins/dsh-update/src/index.js && node --check plugins/dsh-update/src/client.js",
     "test": "node plugins/dsh-update/scripts/test-updater.mjs && node plugins/dsh-update/scripts/test-routes.mjs && node plugins/dsh-web-auth/scripts/test-routes.mjs",
     "install:all": "dsh web --patch ./cordis.patch.yml"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-atomic-write": "0.1.1-rc.2"
   }
 }

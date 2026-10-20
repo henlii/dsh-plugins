@@ -96,6 +96,10 @@ const webAuthEntry = {
     config: { passwordFile: "/tmp/none", mobile: { enabled: true, port: 3081 } }
   }
 };
+// 桌面端的 web-runtime 行：同一个开关要一并写它的 openBrowser。
+const runtimeEntry = {
+  options: { id: "web-runtime", name: "@deepseek-ai/dsh-web-app", config: { openBrowser: false, printUrl: true, surfaceContext: true } }
+};
 // 官方的 connection 行：绑定地址同步写入它的 trustedHosts。
 const connectionEntry = {
   options: {
@@ -109,7 +113,7 @@ let editorAvailable = true;
 let editError = null;
 const configEditor = {
   documentPath: join(testHome, "profiles", "web", "cordis.patch.yml"),
-  entries: () => [webserverEntry, connectionEntry, webAuthEntry],
+  entries: () => [webserverEntry, connectionEntry, webAuthEntry, runtimeEntry],
   async edit(entry, change) {
     if (editError !== null) throw editError;
     edits.push({ id: entry.options.id, next: change(entry.options.config, {}) });
@@ -422,6 +426,8 @@ assert.equal(r.res.status, 200);
 const accessEdit = edits.find((item) => item.id === "web-auth");
 assert.equal(accessEdit.next.mobile.port, 3099, "入口端口写进 mobile.port");
 assert.equal(accessEdit.next.mobile.enabled, true);
+const desktopEdit = edits.find((item) => item.id === "web-runtime");
+assert.equal(desktopEdit.next.openBrowser, true, "同一个开关也要打开桌面端的浏览器访问");
 
 // 与 dsh 本体同端口：写文件之前就拒。
 r = await callApi("/api/dsh-web-auth/access", { method: "POST", body: JSON.stringify({ enabled: true, port: 3080 }) });
