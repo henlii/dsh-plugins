@@ -1400,7 +1400,11 @@ function apply(ctx, config) {
     const runtime = findEntryById("web-runtime");
     if (runtime === null) return null;
     const config = runtime.entry.options.config;
-    return config !== null && typeof config === "object" ? config.openBrowser === true : false;
+    // 只有显式声明过 openBrowser 的 profile（desktop 会把这道闸门写进 patch）才归这个
+    // 开关管。web profile 的 web-runtime 行是 bundle 自带、没有这个键——那里写 true 会
+    // 让服务端启动时去开浏览器，纯属副作用。
+    if (config === null || typeof config !== "object" || !Object.prototype.hasOwnProperty.call(config, "openBrowser")) return null;
+    return config.openBrowser === true;
   };
   const accessPayload = (mobile) => ({
     ok: true,
@@ -1462,7 +1466,7 @@ function apply(ctx, config) {
       // decideDesktopBrowserAccess 拒掉。写失败不阻塞代理配置，但要在响应里说清楚。
       let desktop = { applied: false, reason: null };
       const runtime = findEntryById("web-runtime");
-      if (runtime !== null) {
+      if (runtime !== null && readDesktopOpen() !== null) {
         const current = runtime.entry.options.config;
         const openNow = current !== null && typeof current === "object" && current.openBrowser === true;
         if (openNow === enabled) desktop.applied = true;
