@@ -58,7 +58,8 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | `tokenTtlHours` | `12` | 会话 token 有效期（小时） |
 | `tokenFile` | `<dsh 配置目录>/web-auth-tokens.json` | 已签发 token 的持久化文件，服务重启不踢下线 |
 | `lanHosts` | 自动从 `webStartup.trustedHosts` 派生 | 额外视为回环的 LAN / Tailscale 主机名（客户端 `isLoopback` 补丁用）。dsh 0.2.1-rc.2 之前这个服务叫 `webRuntime`，插件两个名字都认 |
-| `trustLoopbackPaths` | `[]` | 路径前缀列表。命中的前缀上，已认证的 LAN 请求呈现回环外观，用于自带「仅限回环」围栏的路由 |
+| `builtinLoopbackPaths` | `true` | 内置的自围栏插件路径（`/api/task-board`、`/api/dsh-skill-explorer`）。命中的已认证 LAN 请求呈现回环外观，装插件即可用；设为 `false` 清空内置清单 |
+| `trustLoopbackPaths` | `[]` | 额外路径前缀列表，在 `builtinLoopbackPaths` 之上追加。适合其他自带「仅限回环」围栏、且不依赖宿主 authority cookie 的第三方路由 |
 | `extraProtectedPaths` | `[]` | 额外拉进密码门的非 `/api` 路径（默认 `/api` 已全部在门后） |
 
 `<dsh 配置目录>`：`DSH_HOME` 优先，Windows 为 `%APPDATA%\dsh`，其余为
@@ -81,6 +82,12 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 保存走官方 `ctx.configEditor.edit()`：它把 `webserver` 行的下一份 config 写进**当前
 profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fiber。因此：
 
+- 绑定地址变化时，会**同时**把新地址写进官方 `connection` 行的 `trustedHosts`。dshmarket
+  这类第三方插件只读该字段判定请求 authority（宿主自己有 bind 地址兜底，它们没有），
+  空数组会让它们的变更路由全部 403 `untrusted origin`。通配绑定推导不出对外 authority，
+  不写入（响应带 `trustedHosts.reason`）；该行被 home patch / CLI overlay 覆盖时写入会被
+  configEditor 拒绝，绑定本身仍会保存（响应带 `trustedHosts.ok = false` 与原因）。
+
 - 保存后浏览器**多半收不到响应**——fiber 重启会关掉旧监听和所有连接，本页 WebSocket
   一起断。面板把这种断连按「已提交」处理，改端口时给出新地址并探测它是否真的起来。
 - **只填写你改过的键**：只改绑定地址时，`port: !!js ctx.webStartup.port ?? 3080` 这类
@@ -102,7 +109,7 @@ profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fibe
 | 登录浮层 | 纯 DOM 全屏登录卡片，不依赖应用外壳插槽，未登录时必然可见 |
 | 登录限速 | 按真实 TCP 对端地址滑动窗口计数：5 次失败锁 60 秒，另有全局阈值防分布式；锁定期间正确密码也拒绝（429 + `Retry-After`） |
 | 路由清扫 | profile 组装时先于本行注册的 `/api` 路由也能被纳入密码门（它们不经过被接管的 `webServer.register`） |
-| 受信路径回环外观 | `trustLoopbackPaths` 命中的前缀，对已认证 LAN 会话呈现回环外观（Host / Origin / socket 对端地址）；socket 影子在响应结束时立即摘掉 |
+| 自围栏路由回环外观 | 已认证 LAN 会话访问**内置清单**（`/api/task-board`、`/api/dsh-skill-explorer`）或 `trustLoopbackPaths` 命中的路由时呈现回环外观，装插件即可用；socket 影子在响应结束时立即摘掉。**不适用于依赖宿主 `connection.requestRejection` 的路由**（如 `/api/dsh-update/*`）：宿主的浏览器 cookie 名与签名负载都绑定真实 authority，改写 Host 会让它 401 |
 | 客户端 bundle 补丁 | 在 `/plugins` 组合响应体上，把连接客户端的 `isLoopbackHostname` 判定扩到本部署的 LAN / Tailscale 主机名，让 LAN 页面走 host 设置作用域。保留官方对 revision / HEAD / 404 / content-type 的判定，压缩交给官方 `webserver.compression` 中间件 |
 | 官方 index 握手 | 非回环 index 请求在**宿主自己的判定**（`connection.requestRejection`）返回 401 时补上官方启动 token，由宿主自行种下浏览器 cookie；判定通过则原样放行（不多一次跳转，也不会成环）。因此浏览器里留着失效的 `dsh-auth-*` cookie（异 authority／端口、或密钥已轮换）时能自动恢复，而不是永久停在官方那句 401 原文上 |
 | UUID polyfill | 通过 `tapIndex` 注入 `crypto.randomUUID` 补丁（LAN 非 secure context） |
@@ -119,13 +126,14 @@ profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fibe
 - 未通过密码认证的远程访客只拿到独立登录页；官方启动 token 仅在宿主判定为未认证的 index 握手时补一次，不预先发放给访客；
 - 回环同样需要官方浏览器 cookie（官方设计），本插件只在其上增加一层密码门；
 - 密码是部署级秘密（环境变量 / 0600 文件），GUI 里只写不改读；
-- `trustLoopbackPaths` 只对**已认证**会话生效，且只影响列出的前缀，未带 token 的请求仍然 401。它不提升信任级别：已登录的 LAN 会话本来就能改 settings / 凭据，这里只是让那些自带回环围栏的路由接受同一批人；
+- `builtinLoopbackPaths` / `trustLoopbackPaths` 的回环外观只对**已认证**会话生效，未带 token 的请求仍然 401。它不提升信任级别：已登录的 LAN 会话本来就能改 settings / 凭据，这里只是让那些自带回环围栏的路由接受同一批人；
+- 回环外观**不改写**官方 `/api` 前缀（RPC 通道）与依赖宿主 authority cookie 的路由：宿主的 `dsh-auth-*` cookie 名是 `sha256(authority)`、签名负载里也重复该 authority，改写 Host 会让校验必然失败（实测 `/api/dsh-update/*` 会返回 401 `authentication required`）。所以默认只覆盖已知自围栏插件，其余按需用 `trustLoopbackPaths` 追加；
 - socket 对端地址是逐请求影子：响应结束（`finish`/`close`）立即摘掉，keep-alive 后续请求按真实对端判定；
 - 绑定控制不绕过官方校验：面板只把选择交给官方 `configEditor`，由它验证候选值、原子写 patch、失败回滚；能改它的会话本来就能改 settings 与凭据（面板自身在密码门之后）。通配绑定（旧版 dsh 上仍可选）的后果与官方 `--host 0.0.0.0` 完全相同，因此该控制与密码配置是一体的；dsh 0.2.1-rc.2 起服务端本身已拒绝通配绑定。
 
 ## 版本兼容
 
-面向 dsh **0.1.7-rc.2**；0.2.1-rc.2 的两处不兼容改动已适配（见下）。
+面向 dsh **0.2.1-rc.2**（0.1.7-rc.2 起可用）；0.2.1-rc.2 的两处不兼容改动已适配（见下）。
 
 - 插件卡片挂在「插件」页 → 已安装 → 本插件详情页的 `plugins.detail.section` 槽；
 - 客户端取用 `configForms` / `remote` / `remote.settings` 服务，宿主侧用 `settings.prepareDocument`；

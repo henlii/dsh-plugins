@@ -164,13 +164,19 @@ function normalizePrivilegedRequest(req, _port) {
 }
 
 // Present an authenticated non-loopback request as a loopback one, for routes
-// listed in `trustLoopbackPaths`. Third-party plugins fence their own routes
-// with "loopback socket address AND loopback Host header" (or "a paired device
-// cookie", which needs a pairing plugin this deployment does not run); a LAN
-// browser fails that fence even after passing the password gate. Rewriting the
-// Host/Origin headers plus the socket's peer address lets those routes run for
-// the same people the password already admits — the trust level does not go up:
-// an authenticated LAN session can already edit settings and credentials.
+// that fence themselves on loopback (the built-in self-fenced plugin list plus
+// the explicit `trustLoopbackPaths` prefixes). Those plugins check the socket
+// address and Host header themselves (or a paired device cookie, which needs a
+// pairing plugin this deployment does not run); a LAN browser fails that fence
+// even after passing the password gate. Rewriting the Host/Origin headers plus
+// the socket's peer address lets those routes run for the same people the
+// password already admits — the trust level does not go up: an authenticated LAN
+// session can already edit settings and credentials.
+//
+// NEVER apply this to a route that authenticates through the Host connection
+// (`connection.requestRejection`): the browser cookie is bound to the real
+// authority (name = sha256(authority), payload repeats it), so rewriting Host
+// makes that lookup miss and the route answers 401.
 //
 // The peer address is shadowed as an own property of THIS request's socket and
 // dropped again when the response ends: keep-alive reuses the socket, and a
@@ -626,9 +632,25 @@ function apply(ctx, config) {
   };
 
   // Paths whose routes carry their own loopback-only fence (third-party plugins
-  // such as the skill center). An authenticated LAN peer is presented as
-  // loopback on exactly these prefixes; empty by default, so the fence stands.
-  const trustLoopbackPaths = (Array.isArray(cfg.trustLoopbackPaths) ? cfg.trustLoopbackPaths : [])
+  // such as the task board and the skill center). An authenticated LAN peer is
+  // presented as loopback on exactly these prefixes.
+  //
+  // This cannot be a blanket rule for every exact `/api/*` route. A third-party
+  // route that authenticates through the Host connection
+  // (`connection.requestRejection`) is checked against the browser cookie bound
+  // to the REAL authority: the cookie name is `sha256(authority)` and the signed
+  // payload repeats that authority. Rewriting Host to loopback makes the cookie
+  // lookup miss and the route answers 401 "authentication required" — dsh-update
+  // (`/api/dsh-update/*`) is exactly that shape. So the default is a list of
+  // known self-fenced plugins (they gate on `isLoopbackRequest` themselves and
+  // never ask the Host connection), and `trustLoopbackPaths` extends it per
+  // deployment. `builtinLoopbackPaths: false` clears the built-in list.
+  const BUILTIN_LOOPBACK_PATHS = ["/api/task-board", "/api/dsh-skill-explorer"];
+  const builtinLoopbackPaths = cfg.builtinLoopbackPaths === false ? [] : BUILTIN_LOOPBACK_PATHS;
+  const trustLoopbackPaths = [
+    ...builtinLoopbackPaths,
+    ...(Array.isArray(cfg.trustLoopbackPaths) ? cfg.trustLoopbackPaths : [])
+  ]
     .filter((prefix) => typeof prefix === "string" && prefix.startsWith("/"))
     .map((prefix) => (prefix.endsWith("/") ? prefix.slice(0, -1) : prefix))
     .filter((prefix) => prefix.length > 0);
@@ -1189,6 +1211,45 @@ function apply(ctx, config) {
           return;
         }
       }
+      // 绑定地址同时是第三方插件眼里的对外 authority：dshmarket 自己的围栏
+      // 只读 connection.trustedHosts，而官方 webStartup.trustedHosts 只取 CLI
+      // `--trusted-host`（本部署没有该参数），空数组会让它的变更路由全部
+      // 403 untrusted origin。绑定地址变化时把新地址写进 connection 行，
+      // 换网卡 / 主机名后不用再手改 profile patch。
+      //
+      // 通配绑定推导不出对外 authority，保持原值；回环地址本来就被第三方围栏
+      // 当作回环接受，不写入，但要清掉旧的非回环条目。
+      let trustedHostsSync = null;
+      if (host !== boundHost) {
+        const connectionEntry = found.editor.entries().find((item) =>
+          item !== void 0 && item.options !== void 0 && item.options.id === "connection");
+        if (connectionEntry !== void 0) {
+          const loopback = host === "127.0.0.1" || host === "localhost" || host === "::1";
+          const wildcard = host === "0.0.0.0" || host === "::";
+          if (wildcard) {
+            trustedHostsSync = { ok: true, applied: false, reason: "wildcard bind has no reachable authority" };
+          } else {
+            try {
+              await runOutsideHmrTransaction(() => found.editor.edit(connectionEntry, (current) => {
+                // current 是求值后的运行配置：这里写回的是字面量数组，
+                // 与 port 一样，表达式一旦被改过就固化。
+                const next = { ...current };
+                const kept = (Array.isArray(current.trustedHosts) ? current.trustedHosts : [])
+                  .filter((value) => typeof value === "string" && value !== boundHost && value !== host);
+                next.trustedHosts = loopback ? kept : [...kept, host];
+                return next;
+              }));
+              trustedHostsSync = { ok: true, applied: true };
+            } catch (error) {
+              // 被 home patch / CLI overlay 覆盖时 configEditor 会拒绝；绑定本身
+              // 仍要保存，把原因带给面板。
+              trustedHostsSync = { ok: false, error: error instanceof Error ? error.message : String(error) };
+            }
+          }
+        } else {
+          trustedHostsSync = { ok: true, applied: false, reason: "no connection row in this plugin tree" };
+        }
+      }
       try {
         await runOutsideHmrTransaction(() => found.editor.edit(found.entry, (current) => {
           // 没动的键原样带回：连 !!js 表达式一起保留，例如用户只改绑定地址时
@@ -1202,7 +1263,12 @@ function apply(ctx, config) {
         sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
         return;
       }
-      sendJson(res, 200, { ok: true, host, port });
+      sendJson(res, 200, {
+        ok: true,
+        host,
+        port,
+        ...(trustedHostsSync === null ? {} : { trustedHosts: trustedHostsSync })
+      });
     },
   }), "dsh-web-auth: bind route");
 
