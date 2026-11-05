@@ -57,12 +57,19 @@ function defaultConfigDir() {
 const DEFAULT_TOKEN_FILE = join(defaultConfigDir(), "web-auth-tokens.json");
 const DEFAULT_PASSWORD_FILE = join(defaultConfigDir(), "web-auth.password");
 
-// 手机入口的首次绘制注入：viewport meta（safe-area 生效）+ 窄屏兜底（避免先画
-// 52px 侧栏轨道再回流）。这些与移动端布局客户端半边配套，从 dsh-web-mobile 迁入。
+// 手机入口的首次绘制注入：viewport meta（safe-area 生效、软键盘缩放视口）。
+// 这三条与官方布局无关，0.2.2 的 index.html 仍是 `width=device-width, initial-scale=1`，
+// 缺 viewport-fit / interactive-widget，所以无论窄屏改造开不开都要注入。
 const MOBILE_HEAD = [
   '<meta data-dshm-head name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />',
   '<meta name="mobile-web-app-capable" content="yes" />',
   '<meta name="apple-mobile-web-app-capable" content="yes" />',
+].join("");
+
+// 首次绘制兜底：窄屏下先把三列压成单列，避免先画 52px 侧栏轨道再回流。
+// 只在自建窄屏布局启用时注入——0.2.2 起的官方窄屏布局由 JS 驱动列宽，这条
+// `!important` 会盖住它。开关见 config.mobile.narrowLayout。
+const CRITICAL_NARROW_CSS = [
   "<style data-dshm-critical>",
   "@media (max-width:1023.98px){",
   '[class$="frame"]{grid-template-columns:0px minmax(0px,1fr) minmax(0px,0px)!important}',
@@ -70,10 +77,15 @@ const MOBILE_HEAD = [
   "</style>",
 ].join("");
 
-function injectMobileHead(html) {
+function injectMobileHead(html, narrowLayout) {
   if (html.includes("data-dshm-head")) return html;
+  // 客户端半边读这个标记决定要不要装窄屏布局；放在 head 最前，先于客户端脚本执行。
+  const head =
+    MOBILE_HEAD +
+    (narrowLayout ? CRITICAL_NARROW_CSS : "") +
+    `<script data-dshm-narrow-layout>window.__dshmNarrowLayout=${narrowLayout ? "true" : "false"};</script>`;
   let out = html.replace(/<meta[^>]+name=["']viewport["'][^>]*>/i, "");
-  out = out.includes("<head>") ? out.replace("<head>", `<head>${MOBILE_HEAD}`) : `${MOBILE_HEAD}${out}`;
+  out = out.includes("<head>") ? out.replace("<head>", `<head>${head}`) : `${head}${out}`;
   return out;
 }
 
@@ -1011,10 +1023,13 @@ function apply(ctx, config) {
   // `__DSH_TRANSPORT__.ownsHost`（客户端据此判定设置可写）。密码沿用本插件
   // 的 resolvePassword()：改密码文件即时生效，旧 cookie 随之失效。
   const mobileOptions = cfg.mobile !== null && typeof cfg.mobile === "object" ? cfg.mobile : {};
+  // 自建窄屏布局（抽屉侧栏、两级设置、单列网格）默认开；官方 0.2.2 自带窄屏适配后，
+  // 配 `narrowLayout: false` 即可整段退役，手机入口代理与密码认证不受影响。
+  const narrowLayout = mobileOptions.narrowLayout !== false;
   if (mobileOptions.enabled !== false) {
     const mobileHost = typeof mobileOptions.host === "string" && mobileOptions.host !== "" ? mobileOptions.host : "0.0.0.0";
     const mobilePort = Number.isInteger(mobileOptions.port) && mobileOptions.port > 0 && mobileOptions.port <= 65535 ? mobileOptions.port : 3081;
-    ctx.effect(() => webServer.tapIndex(injectMobileHead), "dsh-web-auth: mobile head");
+    ctx.effect(() => webServer.tapIndex((html) => injectMobileHead(html, narrowLayout)), "dsh-web-auth: mobile head");
     const mobileProxy = createMobileProxy({
       listenHost: mobileHost,
       port: mobilePort,

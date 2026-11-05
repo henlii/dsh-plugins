@@ -395,7 +395,7 @@ html[data-dshm-narrow] .dshm-settings[data-dshm-view="page"] .dshm-nav{display:n
 			const sync = () => {
 				raf = 0;
 				const root = document.documentElement;
-				const narrow = isNarrow();
+				const narrow = window.__dshmNarrowLayout !== false && isNarrow();
 				if (narrow) {
 					if (!root.hasAttribute("data-dshm-narrow")) root.setAttribute("data-dshm-narrow", "");
 					if (style.parentElement === null) document.head.append(style);

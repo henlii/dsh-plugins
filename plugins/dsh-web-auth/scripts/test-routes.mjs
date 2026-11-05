@@ -5,11 +5,12 @@
 // configEditor.edit 回调「没动的键原样保留（含 !!js 表达式）」、写入失败把原因
 // 带回面板，以及路由确实落在密码门之后（回环免密 / 非回环无 cookie 401 /
 // 登录后放行）。不启动 dsh，也不碰正在跑的实例。
+// 另测手机入口的 head 注入：narrowLayout 开关决定是否下发单列兜底 CSS。
 //
 // Run: node scripts/test-routes.mjs
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -431,5 +432,26 @@ assert.equal(edits.find((item) => item.id === "web-runtime"), undefined, "不再
 // 与 dsh 本体同端口：写文件之前就拒。
 r = await callApi("/api/dsh-web-auth/access", { method: "POST", body: JSON.stringify({ enabled: true, port: 3080 }) });
 assert.equal(r.res.status, 400);
+
+// ── 手机 head 注入：窄屏兜底受 narrowLayout 控制 ────────────────────────────
+// 注入函数不导出，这里从源码切片取出纯函数后直接驱动，避免为了测试放宽导出面。
+const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+const blockStart = source.indexOf("const MOBILE_HEAD");
+const fnStart = source.indexOf("function injectMobileHead");
+assert.ok(blockStart !== -1 && fnStart > blockStart, "源码里能找到 head 注入段");
+const fnEnd = source.indexOf("\n}\n", fnStart) + 3;
+const inject = new Function(`${source.slice(blockStart, fnEnd)}; return injectMobileHead;`)();
+
+const SAMPLE = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body></body></html>';
+const off = inject(SAMPLE, false);
+assert.ok(off.includes("__dshmNarrowLayout=false"), "关闭时下发 false 标记");
+assert.ok(off.includes("viewport-fit=cover"), "viewport 修正不受开关影响");
+assert.ok(!off.includes("data-dshm-critical"), "关闭时不下发单列兜底 CSS");
+assert.ok(!off.includes('content="width=device-width, initial-scale=1" />'), "原 viewport 被替换");
+
+const on = inject(SAMPLE, true);
+assert.ok(on.includes("__dshmNarrowLayout=true"), "开启时下发 true 标记");
+assert.ok(on.includes("data-dshm-critical"), "开启时下发单列兜底 CSS");
+assert.equal(inject(on, true), on, "已注入的页面不重复注入");
 
 console.log("dsh-web-auth route checks: OK");
