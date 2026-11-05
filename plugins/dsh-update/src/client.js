@@ -69,7 +69,10 @@ window.__ModuleLoader__.load({
 .dsh-u-log{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.6;max-height:150px;overflow:auto;white-space:pre-wrap;word-break:break-all}
 .dsh-u-err{color:var(--dsw-alias-label-error);font-size:12px;margin:6px 0 0}
 .dsh-u-warn{color:var(--dsw-alias-state-warning-primary,var(--dsw-alias-label-primary));font-size:12px;margin:6px 0 0}
-.dsh-u-sep{border-top:1px solid var(--dsw-alias-border-l1);margin:14px 0 0;padding-top:12px}`;
+.dsh-u-sep{border-top:1px solid var(--dsw-alias-border-l1);margin:14px 0 0;padding-top:12px}
+.dsh-u-modal{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.42)}
+.dsh-u-modal-card{width:100%;max-width:360px;box-sizing:border-box;padding:16px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-3);box-shadow:0 12px 40px rgba(0,0,0,.32)}
+.dsh-u-modal-title{margin:0 0 6px;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}`;
 
 		// ── helpers ──────────────────────────────────────────────────────────
 
@@ -120,6 +123,9 @@ window.__ModuleLoader__.load({
 			// Set only to render the immediate "restarting" state after the host
 			// accepts the request; the page is about to be disconnected.
 			const [restarting, setRestarting] = react.useState(false);
+			// Restart is destructive to every live session, so the button only opens
+			// this confirmation; nothing is posted until the second click.
+			const [confirmRestart, setConfirmRestart] = react.useState(false);
 
 			const applyStatus = (data) => {
 				setStatus(data);
@@ -311,7 +317,13 @@ window.__ModuleLoader__.load({
 						type: "button", className: "dsh-u-btn dsh-u-btn-ghost",
 						disabled: busy !== "",
 						onClick: () => { void refresh(true); }
-					}, "重新检查")));
+					}, "重新检查"),
+					react.createElement("button", {
+						type: "button", className: "dsh-u-btn dsh-u-btn-danger",
+						style: { marginLeft: "auto" },
+						disabled: busy !== "" || installing || restarting,
+						onClick: () => { setConfirmRestart(true); }
+					}, restarting ? "已触发重启…" : "重启服务")));
 
 			// One release row. Built in a helper so the list markup stays readable:
 			// deep createElement nesting is where bracket mistakes hide.
@@ -414,26 +426,42 @@ window.__ModuleLoader__.load({
 							className: autoRestartResult.ok ? "dsh-u-mut dsh-u-ok" : "dsh-u-warn"
 						}, autoRestartResult.ok
 							? "已自动重启，新版本即将生效；本页会断开，稍后刷新即可。"
-							: `自动重启失败：${String(autoRestartResult.error || "")}。请点下面的「重启服务」。`)
+							: `自动重启失败：${String(autoRestartResult.error || "")}。请点上方的「重启服务」。`)
 						: autoRestart
 							? react.createElement("p", { className: "dsh-u-warn" }, "安装已完成，正在自动重启以让新版本生效；本页会断开，稍后刷新即可。")
-							: react.createElement("p", { className: "dsh-u-warn" }, "安装已完成，但运行中的进程仍是旧版本；点下面的「重启服务」后生效。")
+							: react.createElement("p", { className: "dsh-u-warn" }, "安装已完成，但运行中的进程仍是旧版本；点上方「重启服务」后生效。")
 					: null,
-				react.createElement("div", { className: "dsh-u-row" },
-					react.createElement("button", {
-						type: "button", className: "dsh-u-btn dsh-u-btn-danger",
-						disabled: busy !== "" || installing || restarting,
-						onClick: () => { void doRestart(); }
-					}, restarting ? "已触发重启…" : "重启服务"),
-					react.createElement("span", { className: "dsh-u-mut" },
-						restarting
-							? "服务正在重启，本页会断开，稍后刷新即可"
-							: status.systemdUnit
-								? `手动重启：systemctl --user restart ${String(status.systemdUnit)}（会断开当前页面）`
-								: "手动重启：由看门狗脚本按原命令行重拉（会断开当前页面）")),
+				react.createElement("div", { className: "dsh-u-mut", style: { marginTop: 10 } },
+					restarting
+						? "服务正在重启，本页会断开，稍后刷新即可"
+						: status.systemdUnit
+							? `重启按钮在上方；也可手动 systemctl --user restart ${String(status.systemdUnit)}（会断开当前页面）`
+							: "重启按钮在上方；也可由看门狗脚本按原命令行重拉（会断开当前页面）"),
 				status.restart && status.restart.ok
 					? react.createElement("div", { className: "dsh-u-mut" }, `上次重启：${formatTime(status.restart.at)} · ${String(status.restart.mode || "")}`)
 					: null);
+
+			const confirmDialog = confirmRestart
+				? react.createElement("div", {
+					className: "dsh-u-modal", role: "dialog", "aria-modal": "true", "aria-label": "确认重启服务",
+					onClick: (e) => { if (e.target === e.currentTarget) setConfirmRestart(false); },
+					onKeyDown: (e) => { if (e.key === "Escape") setConfirmRestart(false); }
+				},
+					react.createElement("div", { className: "dsh-u-modal-card" },
+						react.createElement("p", { className: "dsh-u-modal-title" }, "重启 dsh 服务？"),
+						react.createElement("p", { className: "dsh-u-mut", style: { margin: "0 0 14px" } },
+							"重启会断开当前页面与所有正在运行的会话，恢复后需要刷新。"),
+						react.createElement("div", { className: "dsh-u-row", style: { justifyContent: "flex-end", marginTop: 0 } },
+							react.createElement("button", {
+								type: "button", className: "dsh-u-btn dsh-u-btn-ghost",
+								onClick: () => { setConfirmRestart(false); }
+							}, "取消"),
+							react.createElement("button", {
+								type: "button", className: "dsh-u-btn dsh-u-btn-danger",
+								disabled: busy !== "" || installing || restarting,
+								onClick: () => { setConfirmRestart(false); void doRestart(); }
+							}, "确认重启"))))
+				: null;
 
 			return react.createElement(react.Fragment, null,
 				react.createElement("style", { "data-plugin-css": "dsh-update/card", dangerouslySetInnerHTML: { __html: CARD_CSS } }),
@@ -444,9 +472,10 @@ window.__ModuleLoader__.load({
 							controls,
 							message ? react.createElement("p", { className: message.ok ? "dsh-u-mut dsh-u-ok" : "dsh-u-err", style: { margin: "8px 0 0" } }, message.text) : null,
 							error.length > 0 ? react.createElement("p", { className: "dsh-u-err", style: { margin: "8px 0 0" } }, error) : null,
-							history,
 							notes,
-							progress))));
+							history,
+							progress))),
+				confirmDialog);
 		}
 
 		function apply(ctx) {
