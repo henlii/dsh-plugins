@@ -21,9 +21,6 @@
         # 可选：额外视为回环的 LAN/Tailscale 主机名（默认自动从 webStartup.trustedHosts 派生）
         # lanHosts: ['myhost.lan', 'myhost.tailnet.ts.net']
 
-    - id: web-mobile
-      name: 'dsh-web-mobile'
-
     - id: dsh-update
       name: 'dsh-update'
       config:
