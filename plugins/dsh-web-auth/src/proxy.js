@@ -108,6 +108,14 @@ function loginPage(next, failed) {
 <body><form method="post" action="${action}"><h1>dsh 手机访问</h1>${failed ? '<p class="err">密码不对，再试一次。</p>' : "<p>输入这台电脑上设置的访问密码。</p>"}<input type="password" name="password" autocomplete="current-password" autofocus required minlength="1"><button type="submit">进入</button></form></body></html>`;
 }
 
+// 未配置密码时手机入口不提供登录，只说明原因：构造期不抛错（那会让整个插件半边
+// 挂载失败，连本机回环都进不去设置页），改成每个请求回 503。
+function noPasswordPage() {
+  return `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>dsh 手机访问</title>
+<style>html,body{margin:0;height:100%;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#111418;color:#e8eaed}body{display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}main{width:100%;max-width:24rem}h1{font-size:1.1rem;margin:0 0 1rem}p{color:#9aa0a6;font-size:.85rem;margin:0 0 .75rem}code{background:#1a1d21;padding:.1rem .3rem;border-radius:.25rem}</style></head>
+<body><main><h1>服务端未配置访问密码</h1><p>这台电脑上的 dsh-web-auth 还没有设置访问密码，手机入口暂时不可用。</p><p>在服务机本机打开 <code>http://127.0.0.1</code> 的设置 → 访问认证里设置密码；或在 profile 里给 <code>web-auth</code> 配 <code>password</code> / <code>passwordFile</code>。设置后本页立即生效，无需重启。</p></main></body></html>`;
+}
+
 function parseNext(raw) {
   if (typeof raw !== "string" || raw === "") return "";
   try {
@@ -146,7 +154,13 @@ export function createMobileProxy(options) {
   if (!upstream) throw new Error("dsh-web-mobile: upstream is required");
   // password 允许传函数：密码文件改完立即生效，旧 cookie 自动失效。
   const passwordNow = () => (typeof password === "function" ? password() : password);
-  if (typeof passwordNow() !== "string" || passwordNow() === "") throw new Error("dsh-web-mobile: password is required");
+  // 空密码不构成可用的凭据：构造期不抛错（见 noPasswordPage），运行期一律 503。
+  // 密码在面板里保存后 passwordNow() 立刻非空，手机入口随之可用，不需要重启。
+  // 非字符串（配置写错成对象等）按未配置处理，不要 String() 成 "[object Object]"。
+  const configuredNow = () => {
+    const current = passwordNow();
+    return typeof current === "string" && current.length > 0;
+  };
 
   const secret = readSecret(secretFile);
   const expectedNow = () => tokenFor(String(passwordNow()), secret);
@@ -211,6 +225,13 @@ export function createMobileProxy(options) {
     const url = new URL(req.url ?? "/", "http://placeholder");
     const pathname = url.pathname;
 
+    // 没有密码就没有可验证的凭据：连登录页也不给，避免空密码被当成"密码对了"。
+    if (!configuredNow()) {
+      res.writeHead(503, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(noPasswordPage());
+      return;
+    }
+
     if (pathname === AUTH_PATH) {
       if (req.method === "GET") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
@@ -226,8 +247,16 @@ export function createMobileProxy(options) {
           res.end("payload too large");
           return;
         }
+        // 读 body 期间密码可能被清空（密码文件被删）：入口那次判定已经过去，这里
+        // 取一次快照，空密码不允许登录，也不按空密码签发 cookie。
+        const current = passwordNow();
+        if (typeof current !== "string" || current.length === 0) {
+          res.writeHead(503, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+          res.end(noPasswordPage());
+          return;
+        }
         const submitted = new URLSearchParams(body).get("password") ?? "";
-        if (!safeEqual(submitted, String(passwordNow()))) {
+        if (!safeEqual(submitted, current)) {
           const next = parseNext(url.searchParams.get("next"));
           res.writeHead(303, { location: `${AUTH_PATH}?failed=1${next === "" ? "" : `&next=${encodeURIComponent(next)}`}` });
           res.end();
@@ -235,7 +264,7 @@ export function createMobileProxy(options) {
         }
         const next = parseNext(url.searchParams.get("next")) || "/";
         res.writeHead(303, {
-          "set-cookie": `${AUTH_COOKIE}=${expectedNow()}; Max-Age=${String(COOKIE_MAX_AGE)}; Path=/; HttpOnly; SameSite=Lax`,
+          "set-cookie": `${AUTH_COOKIE}=${tokenFor(current, secret)}; Max-Age=${String(COOKIE_MAX_AGE)}; Path=/; HttpOnly; SameSite=Lax`,
           location: next,
           "cache-control": "no-store"
         });
@@ -310,6 +339,11 @@ export function createMobileProxy(options) {
   });
 
   server.on("upgrade", (req, socket, head) => {
+    if (!configuredNow()) {
+      socket.write("HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     if (!authorized(req)) {
       socket.write("HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\n\r\n");
       socket.destroy();

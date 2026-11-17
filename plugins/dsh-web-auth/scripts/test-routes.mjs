@@ -123,6 +123,7 @@ const configEditor = {
 
 const services = { webServer, configEditor };
 const intervals = [];
+const disposers = [];
 const ctx = {
   get(name) {
     if (name === "configEditor" && !editorAvailable) return void 0;
@@ -130,9 +131,11 @@ const ctx = {
   },
   effect(fn) {
     const dispose = fn();
-    return () => {
+    const off = () => {
       if (typeof dispose === "function") dispose();
     };
+    disposers.push(off);
+    return off;
   },
   interval(fn, ms) {
     intervals.push({ fn, ms });
@@ -453,5 +456,28 @@ const on = inject(SAMPLE, true);
 assert.ok(on.includes("__dshmNarrowLayout=true"), "开启时下发 true 标记");
 assert.ok(on.includes("data-dshm-critical"), "开启时下发单列兜底 CSS");
 assert.equal(inject(on, true), on, "已注入的页面不重复注入");
+
+// ── 未配置密码 + 手机入口开启：apply 不抛错，回环仍能看到未配置，非回环 503 ──
+// 回归点：proxy 构造期抛错会让整个插件半边挂载失败，界面显示加载异常，而回环设置页
+// 正是唯一能补密码的出口，必须仍然可用。
+const noPasswordPort = await freePort();
+let applyError = null;
+try {
+  plugin.apply(ctx, {
+    passwordFile: join(testHome, "missing-web-auth.password"),
+    mobile: { enabled: true, host: "127.0.0.1", port: noPasswordPort }
+  });
+} catch (error) {
+  applyError = error;
+}
+assert.equal(applyError, null, `未配置密码时 apply 不应抛错：${applyError === null ? "" : applyError.message}`);
+
+r = await callApi("/api/auth/status", { peer: "127.0.0.1" });
+assert.equal(r.res.status, 200, "回环仍要拿到状态，否则面板无从设密码");
+assert.equal(r.body.passwordConfigured, false, "回环应报告未配置");
+r = await callApi("/api/auth/status", { peer: "192.0.2.9" });
+assert.equal(r.res.status, 503, "非回环在未配置密码时仍是 503");
+
+for (const off of disposers) off();
 
 console.log("dsh-web-auth route checks: OK");

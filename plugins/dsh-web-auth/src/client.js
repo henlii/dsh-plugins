@@ -809,7 +809,7 @@ window.__ModuleLoader__.load({
 
 		function AuthInfoCard() {
 			const [info, setInfo] = react.useState(null);
-			const [failed, setFailed] = react.useState(false);
+			const [failure, setFailure] = react.useState(null);
 			const [sessions, setSessions] = react.useState([]);
 			const [password, setPassword] = react.useState("");
 			const [confirm, setConfirm] = react.useState("");
@@ -818,12 +818,14 @@ window.__ModuleLoader__.load({
 
 			const loadStatus = react.useCallback(() => {
 				return fetch("/api/auth/status", { credentials: "same-origin" })
-					.then((res) => res.json().catch(() => ({})))
-					.then((data) => {
-						if (data && data.ok) { setInfo(data); setFailed(false); }
-						else setFailed(true);
+					.then((res) => res.json().catch(() => ({})).then((data) => ({ status: res.status, data })))
+					.then(({ status, data }) => {
+						if (data && data.ok) { setInfo(data); setFailure(null); }
+						// 503 是「服务端还没设密码」，不是登录问题：远程访客看到这句话才知道该去
+						// 服务机本机设置，而不是反复登录。
+						else setFailure(status === 503 ? "no-password" : "auth");
 					})
-					.catch(() => setFailed(true));
+					.catch(() => setFailure("auth"));
 			}, []);
 
 			const loadSessions = react.useCallback(() => {
@@ -888,7 +890,9 @@ window.__ModuleLoader__.load({
 				react.createElement("ul", { className: "dsh-o-cards" },
 				react.createElement("li", { className: "dsh-o-card" },
 					react.createElement("div", { className: "dsh-o-cardBody" },
-						failed
+						failure === "no-password"
+						? react.createElement("p", { className: "dsh-o-err", style: { margin: 0 } }, "未配置访问密码：请在服务机本机（127.0.0.1）打开本页设置，或在 profile 里给 web-auth 配 password / passwordFile。手机入口在设置密码前不可用。")
+						: failure === "auth"
 						? react.createElement("p", { className: "dsh-o-err", style: { margin: 0 } }, "（需登录后查看）")
 						: info === null
 							? react.createElement("p", { style: { margin: 0 } }, "加载中…")

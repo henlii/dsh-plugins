@@ -49,7 +49,10 @@ dsh web --patch /path/to/dsh-plugins/cordis.patch.yml
 
 > 插件依赖的 `@deepseek-ai/*` / `cordis` 由 dsh 官方运行时经 profile 的 pnpm 闭包注入，
 > **不要**在插件 `package.json` 里声明这些依赖（官方未发布到公共 npm，声明反而解析失败）。
-> 例外是工具类包（如 `@deepseek-ai/dsh-atomic-write`）：它不作为服务注入，可以正常声明。
+> 例外是工具类包（如 `@deepseek-ai/dsh-atomic-write`）：它不作为服务注入，需要显式声明，
+> 但要写进 **`peerDependencies`** 并把范围对齐当前 DSH 发布线。写成普通 `dependencies`
+> 会按声明范围在 profile 里装一份自己的副本（范围旧就是更旧的副本），dshmarket 的兼容
+> 预检会直接判不兼容并拒绝安装。
 
 ## 平台兼容
 

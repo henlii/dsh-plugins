@@ -124,6 +124,47 @@ assert.equal(res.status, 200);
 assert.equal(await res.text(), "ok");
 assert.equal(seen[0].headers.host, `127.0.0.1:${upstreamPort}`);
 
+// ── 未配置密码：构造不抛错、请求 503、空密码不能登录 ──────────────────────
+// 回归点：密码为空时构造期抛错会让插件半边整体挂载失败，界面上显示成加载异常，
+// 本机回环也进不去设置页设密码。
+let livePassword = "";
+const unset = createMobileProxy({
+  listenHost: "127.0.0.1",
+  port: 0,
+  upstream: { host: "127.0.0.1", port: upstreamPort },
+  password: () => livePassword,
+  secretFile: join(secretDir, "secret-unset")
+});
+const unsetAddress = await unset.listen();
+const unsetBase = `http://127.0.0.1:${unsetAddress.port}`;
+
+seen.length = 0;
+let unsetRes = await fetch(`${unsetBase}/`, { redirect: "manual", headers: { accept: "text/html" } });
+assert.equal(unsetRes.status, 503);
+assert.match(await unsetRes.text(), /未配置访问密码/);
+assert.equal(seen.length, 0, "没有密码时请求不应到上游");
+
+unsetRes = await fetch(`${unsetBase}/__mobile/auth`, {
+  method: "POST",
+  redirect: "manual",
+  headers: { "content-type": "application/x-www-form-urlencoded" },
+  body: "password="
+});
+assert.equal(unsetRes.status, 503);
+assert.equal(unsetRes.headers.get("set-cookie"), null, "空密码不得签发 cookie");
+
+// 面板里保存密码后立即放行：password 函数每次请求重读，不需要重启。
+livePassword = "s3cret";
+unsetRes = await fetch(`${unsetBase}/__mobile/auth`, {
+  method: "POST",
+  redirect: "manual",
+  headers: { "content-type": "application/x-www-form-urlencoded" },
+  body: "password=s3cret"
+});
+assert.equal(unsetRes.status, 303);
+assert.match(String(unsetRes.headers.get("set-cookie")), /^dsh_mobile_auth=/);
+await unset.close();
+
 await proxy.close();
 // fetch 的 keep-alive 连接会让 close 一直等回调，先断开再关。
 upstream.closeAllConnections?.();
