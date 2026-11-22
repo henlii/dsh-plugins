@@ -11,8 +11,10 @@
 
 **推荐形态（0.6 起）：** webserver 绑回环（`127.0.0.1`），远程访问走本插件自带的手机入口
 代理——代理监听 LAN/tailnet，密码通过后把 `Host`/`Origin` 改写成上游回环再转发（HTTP 与
-WebSocket 都转发）。桌面端只探回环，这样它与远程访问可以并存，也不再依赖「认证后回环
-外观」那套改写。
+WebSocket 都转发）。0.6.9 起手机代理在服务端内部用启动 token 换取并缓存上游 `dsh-auth-*`
+会话 Cookie，向浏览器只暴露 `SameSite=Lax` 的 `dsh_mobile_auth`，避免 iOS/WebKit 在
+`303 + SameSite=Strict` 重定向链上丢 Cookie 成环。桌面端只探回环，这样它与远程访问可以并存，
+也不再依赖「认证后回环外观」那套改写。
 
 下面描述的是另一种形态（webserver 直接绑网卡地址，由本插件在认证后把请求呈现为回环），
 仍然支持，但要求那个地址本来就允许外部直连。
@@ -69,7 +71,7 @@ dsh plugin --profile web add @henlii/dsh-web-auth
 | `builtinLoopbackPaths` | `true` | 内置的自围栏插件路径（`/api/task-board`、`/api/dsh-skill-explorer`）。命中的已认证 LAN 请求呈现回环外观，装插件即可用；设为 `false` 清空内置清单 |
 | `trustLoopbackPaths` | `[]` | 额外路径前缀列表，在 `builtinLoopbackPaths` 之上追加。适合其他自带「仅限回环」围栏、且不依赖宿主 authority cookie 的第三方路由 |
 | `extraProtectedPaths` | `[]` | 额外拉进密码门的非 `/api` 路径（默认 `/api` 已全部在门后） |
-| `mobile` | `{ enabled: true, host: "0.0.0.0", port: 3081 }` | 手机入口代理的监听地址与端口；密码沿用 `password`/`passwordFile`。`enabled: false` 关闭。面板的「Web 访问」可开关、改端口并列出可访问地址，不暴露本地回环保定。desktop profile（Electron 壳）还要在应用设置里打开一次「浏览器访问」（对应 `web-runtime.openBrowser`，同时会开启启动时自动打开浏览器），否则宿主会把浏览器请求当成渲染器请求拒掉（`reopen the URL printed by dsh web`）。`web` profile 没有这道闸门，插件不会去写它 |
+| `mobile` | `{ enabled: true, host: "0.0.0.0", port: 3081 }` | 手机入口代理的监听地址与端口；密码沿用 `password`/`passwordFile`，并由代理内部托管上游 `dsh-auth-*` 会话 Cookie（浏览器只存 `dsh_mobile_auth`）。`enabled: false` 关闭。面板的「Web 访问」可开关、改端口并列出可访问地址，不暴露本地回环保定。desktop profile（Electron 壳）还要在应用设置里打开一次「浏览器访问」（对应 `web-runtime.openBrowser`，同时会开启启动时自动打开浏览器），否则宿主会把浏览器请求当成渲染器请求拒掉（`reopen the URL printed by dsh web`）。`web` profile 没有这道闸门，插件不会去写它 |
 
 `<dsh 配置目录>`：`DSH_HOME` 优先，Windows 为 `%APPDATA%\dsh`，其余为
 `$XDG_CONFIG_HOME/dsh`（通常 `~/.config/dsh`）。
@@ -132,7 +134,7 @@ profile 的 `cordis.patch.yml`**，再由 Loader reconcile 重启 webserver fibe
 
 - 认证按**真实 TCP 对端地址**判定（`127.0.0.1`/`::1` 免密），Host 头与 `X-Forwarded-For` 伪造无法绕过；
 - 静态资源（HTML/JS/CSS）不设密码门槛（页面本身无数据），`/api` 与 WebSocket 全在密码之后；
-- 未通过密码认证的远程访客只拿到独立登录页；官方启动 token 仅在宿主判定为未认证的 index 握手时补一次，不预先发放给访客；
+- 未通过密码认证的远程访客只拿到独立登录页；直连模式下官方启动 token 仅在宿主判定为未认证的 index 握手时补一次，手机代理模式下则由代理在通过密码门后于服务端内部换取并托管上游会话 Cookie，均不预先发放给访客；
 - 回环同样需要官方浏览器 cookie（官方设计），本插件只在其上增加一层密码门；
 - 密码是部署级秘密（环境变量 / 0600 文件），GUI 里只写不改读；
 - `builtinLoopbackPaths` / `trustLoopbackPaths` 的回环外观只对**已认证**会话生效，未带 token 的请求仍然 401。它不提升信任级别：已登录的 LAN 会话本来就能改 settings / 凭据，这里只是让那些自带回环围栏的路由接受同一批人；
